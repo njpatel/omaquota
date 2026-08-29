@@ -53,7 +53,7 @@ The icon shows requests in the last 24h (`barMetric`: `requests`, `tokens`,
 or `lowest` remaining %). It turns urgent when a primary 5h/7d window is at
 10% or less; model-scoped weekly caps show in the panel but never light the bar.
 
-Settings: `omarchy bar set njpatel.omaquota <key> <json>` —
+Settings: `omarchy bar set njpatel.omaquota <key> <value>` —
 `baseUrl`, `hostLabel`, `keyFile`, `refreshIntervalSec` (300),
 `quotaIntervalSec` (900), `barMetric`.
 
