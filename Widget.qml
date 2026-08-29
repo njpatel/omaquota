@@ -279,7 +279,8 @@ Panel {
     var l = first ? "┌" : (last ? "└" : "├"), r = first ? "┐" : (last ? "┘" : "┤")
     if (!title) return span(l + rep("─", cols - 2) + r, faint) + "<br>"
     if (title.length > cols - 6) title = title.slice(0, cols - 7) + "…"
-    return span(l + "─ ", faint) + span(title, dim) + span(" " + rep("─", cols - 4 - title.length) + r, faint) + "<br>"
+    // l(1) + "─ "(2) + title + " "(1) + dashes + r(1) must equal cols.
+    return span(l + "─ ", faint) + span(title, dim) + span(" " + rep("─", cols - 5 - title.length) + r, faint) + "<br>"
   }
   // Drop a trailing snapshot date from model ids: claude-haiku-4-5-20251001.
   function modelName(m) { return String(m).replace(/-20\d{6}$/, "") }
@@ -368,7 +369,18 @@ Panel {
     out += rule("", false, false)
     out += line(cell(foot, inner, fg))
     out += rule("", false, true)
+    checkWidths(out)
     return out
+  }
+
+  // Every rendered line must be exactly `cols` wide, or the frame drifts.
+  function checkWidths(html) {
+    var rows = html.split("<br>")
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i] === "") continue
+      var plain = rows[i].replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+      if (plain.length !== cols) console.warn("omaquota", "line " + i + " is " + plain.length + " wide, want " + cols + ":", plain)
+    }
   }
 
   // Provider header row: name cell 36 · ok 7 · fail 6 · plan 5 (= 57 with gaps)
