@@ -169,6 +169,19 @@ Panel {
   function fmtInt(n) {
     return String(Math.round(Number(n || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, ",")
   }
+  function fmtUsd(v) {
+    v = Number(v || 0)
+    if (v >= 1000) return "$" + fmtInt(Math.round(v))
+    if (v >= 100) return "$" + v.toFixed(0)
+    if (v >= 10) return "$" + v.toFixed(1)
+    return "$" + v.toFixed(2)
+  }
+  function fmtClock(ts) {
+    var d = new Date(ts * 1000)
+    var sameDay = new Date(nowMs).toDateString() === d.toDateString()
+    var hm = (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes()
+    return sameDay ? hm : d.toLocaleDateString(Qt.locale(), "d MMM") + " " + hm
+  }
   function fmtMs(ms) {
     if (ms === null || ms === undefined) return "—"
     ms = Number(ms)
@@ -349,9 +362,11 @@ Panel {
     var st = root.stats
     if (st && st.requests !== undefined) {
       var failPct = st.requests > 0 ? (100 * st.failed / st.requests) : 0
-      var l1 = pad("requests " + range, 14) + lpad(fmtInt(st.requests), 8) + "   failed " + fmtInt(st.failed) + " (" + failPct.toFixed(1) + "%)"
+      var since = st.covered_since ? "  since " + fmtClock(st.covered_since) : ""
+      var l1 = pad("requests " + range, 14) + lpad(fmtInt(st.requests), 8) + "   failed " + fmtInt(st.failed) + " (" + failPct.toFixed(1) + "%)" + since
       out += line(h(span(pad("requests " + range, 14), dim) + span(lpad(fmtInt(st.requests), 8), fg)
-                     + span("   failed ", dim) + span(fmtInt(st.failed) + " (" + failPct.toFixed(1) + "%)", st.failed > 0 ? accent : fg), l1.length))
+                     + span("   failed ", dim) + span(fmtInt(st.failed) + " (" + failPct.toFixed(1) + "%)", st.failed > 0 ? accent : fg)
+                     + span(since, faint), l1.length))
       var l2 = pad("tokens", 14) + "in " + lpad(fmtNum(st.input_tokens), 7) + "  out " + lpad(fmtNum(st.output_tokens), 7) + "  cached " + fmtNum(st.cached_tokens) + " (" + Math.round(100 * (st.cache_hit || 0)) + "%)"
       out += line(h(span(pad("tokens", 14), dim) + span("in ", dim) + span(lpad(fmtNum(st.input_tokens), 7), fg)
                      + span("  out ", dim) + span(lpad(fmtNum(st.output_tokens), 7), fg)
@@ -359,20 +374,29 @@ Panel {
       var l3 = pad("latency", 14) + "avg " + lpad(fmtMs(st.avg_latency_ms), 7) + "  ttft " + lpad(fmtMs(st.avg_ttft_ms), 7)
       out += line(h(span(pad("latency", 14), dim) + span("avg ", dim) + span(lpad(fmtMs(st.avg_latency_ms), 7), fg)
                      + span("  ttft ", dim) + span(lpad(fmtMs(st.avg_ttft_ms), 7), fg), l3.length))
+      if (st.priced && st.requests > 0) {
+        var costTxt = lpad(fmtUsd(st.cost_usd), 8)
+        var parts = "in " + fmtUsd(st.cost_in_usd) + " · out " + fmtUsd(st.cost_out_usd) + " · cache " + fmtUsd(st.cost_cache_usd)
+        if (st.unpriced_requests > 0) parts += " · " + fmtInt(st.unpriced_requests) + " unpriced"
+        var l4 = pad("est. cost", 14) + costTxt + "   " + parts
+        out += line(h(span(pad("est. cost", 14), dim) + span(costTxt, fg) + "   " + span(parts, dim), l4.length))
+      }
       out += line(h("", 0))
 
       // ---- models
-      out += rule("MODELS " + range + "  (t toggles range)", false, false)
+      out += rule("MODELS " + range + " · t toggles" + (st.priced ? " · $ est. at models.dev list price" : ""), false, false)
       var models = st.models || []
       var maxReq = 0
       for (var i = 0; i < models.length; i++) maxReq = Math.max(maxReq, models[i].requests)
       if (models.length === 0) out += line(h(span("no traffic in this range", dim), 24))
       for (var m = 0; m < models.length; m++) {
         var md = models[m]
-        var nameW = 18, barW = 20
-        var txt = pad(md.model, nameW) + " " + rep("x", barW) + " " + lpad(fmtInt(md.requests), 6) + " " + lpad(fmtNum(md.total_tokens), 7)
+        var nameW = 18, barW = 13
+        var costCol = st.priced ? " " + lpad(md.priced === false ? "—" : fmtUsd(md.cost), 7) : ""
+        var txt = pad(md.model, nameW) + " " + rep("x", barW) + " " + lpad(fmtInt(md.requests), 6) + " " + lpad(fmtNum(md.total_tokens), 7) + costCol
         out += line(h(span(pad(md.model, nameW), fg) + " " + share(md.requests, maxReq, barW) + " "
-                       + span(lpad(fmtInt(md.requests), 6), fg) + " " + span(lpad(fmtNum(md.total_tokens), 7), dim), txt.length))
+                       + span(lpad(fmtInt(md.requests), 6), fg) + " " + span(lpad(fmtNum(md.total_tokens), 7), dim)
+                       + (costCol ? span(costCol, fg) : ""), txt.length))
       }
       out += line(h("", 0))
     } else {

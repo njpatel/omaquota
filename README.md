@@ -23,7 +23,7 @@ omarchy plugin add https://github.com/njpatel/omaquota.git --enable
 omarchy restart shell
 ```
 
-Setup asks for the proxy URL and its management key (the plaintext one, not the hash in `config.yaml`). The proxy needs `remote-management.allow-remote` if it is not on localhost, and the `cap-token-usage-tracker` plugin for the stats block.
+Setup asks for the proxy URL and its management key (the plaintext one, not the hash in `config.yaml`). The proxy needs `remote-management.allow-remote` if it is not on localhost and `usage-statistics-enabled` for the stats block. Omaquota consumes the proxy's usage queue, so run only one consumer; the cost line is an estimate at [models.dev](https://models.dev) list prices.
 
 ## Use
 
