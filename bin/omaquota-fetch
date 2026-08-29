@@ -198,6 +198,58 @@ def drain_queue(client, usage):
     return popped
 
 
+def backfill_from_tracker(client, usage):
+    """One-time seed of history from the cap-token-usage-tracker plugin when the
+    proxy happens to have it; hours before this consumer's first drain only, so
+    nothing is counted twice. Skipped silently when the plugin is absent."""
+    if usage.get("backfilled"):
+        return 0
+    usage["backfilled"] = True
+    try:
+        d = client.get("/v0/resource/plugins/cap-token-usage-tracker/stats?range=7d") or {}
+    except Exception:
+        return 0
+    series = d.get("model_series") or []
+    provider_of = {}
+    for g in d.get("groups") or []:
+        if g.get("model") and g.get("provider"):
+            provider_of.setdefault(g["model"], g["provider"])
+    first = usage.get("first_seen") or time.time()
+    first_hour = int(first // 3600) * 3600
+    buckets = usage.setdefault("buckets", {})
+    added = 0
+    for row in series:
+        ts = parse_iso(row.get("hour"))
+        if ts is None:
+            continue
+        hour = int(ts // 3600) * 3600
+        if hour >= first_hour or int(row.get("requests") or 0) == 0:
+            continue
+        model = row.get("model") or "?"
+        key = "%d|%s|%s|%s" % (hour, provider_of.get(model, "?"), model, "(backfill)")
+        b = buckets.get(key)
+        if b is None:
+            b = dict(EMPTY_BUCKET); buckets[key] = b
+        inp = int(row.get("input_tokens") or 0)
+        cr = int(row.get("cache_read_tokens") or row.get("cached_tokens") or 0)
+        b["requests"] += int(row.get("requests") or 0)
+        b["failed"] += int(row.get("failed_requests") or 0)
+        b["uncached"] += max(0, inp - cr) if inp >= cr else inp
+        b["cache_read"] += cr
+        b["cache_write"] += int(row.get("cache_creation_tokens") or 0)
+        b["output"] += int(row.get("output_tokens") or 0)
+        b["reasoning"] += int(row.get("reasoning_tokens") or 0)
+        b["latency_ms"] += int(row.get("total_latency_ns") or 0) // 1000000
+        b["latency_n"] += int(row.get("latency_samples") or 0)
+        b["ttft_ms"] += int(row.get("total_ttft_ns") or 0) // 1000000
+        b["ttft_n"] += int(row.get("ttft_samples") or 0)
+        added += 1
+    if added:
+        usage["backfill_note"] = "seeded from tracker before %s" % time.strftime("%d %b %H:%M")
+        usage["first_seen"] = min(first, min(int(k.split("|", 1)[0]) for k in buckets))
+    return added
+
+
 def load_prices():
     """models.dev cost table, refreshed daily. Returns {(provider, model): cost} + by model."""
     cache = load_json(PRICES_FILE, {})
@@ -295,6 +347,7 @@ def stats_for(usage, table, rng):
         "sources": len(sources),
         # Coverage starts when this consumer first drained the queue.
         "covered_since": first if now - first < span else None,
+        "note": usage.get("backfill_note"),
     }
 
 
@@ -506,6 +559,7 @@ def main():
     usage_error = None
     try:
         drain_queue(client, usage)
+        backfill_from_tracker(client, usage)
         save_json(USAGE_FILE, usage)
     except Exception as e:
         usage_error = "usage queue: %s" % e

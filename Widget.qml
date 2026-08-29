@@ -180,7 +180,7 @@ Panel {
     var d = new Date(ts * 1000)
     var sameDay = new Date(nowMs).toDateString() === d.toDateString()
     var hm = (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes()
-    return sameDay ? hm : d.toLocaleDateString(Qt.locale(), "d MMM") + " " + hm
+    return sameDay ? hm : d.toLocaleDateString(Qt.locale(), "d MMM")
   }
   function fmtMs(ms) {
     if (ms === null || ms === undefined) return "—"
@@ -261,7 +261,7 @@ Panel {
     var l = first ? "┌" : (last ? "└" : "├"), r = first ? "┐" : (last ? "┘" : "┤")
     if (!title) return span(l + rep("─", cols - 2) + r, faint) + "<br>"
     var t = "─ " + title + " "
-    return span(l + t, faint).replace(esc(title), span(title, dim)) + span(rep("─", cols - 2 - t.length) + r, faint) + "<br>"
+    return span(l + "─ ", faint) + span(title, dim) + span(" " + rep("─", cols - 2 - t.length) + r, faint) + "<br>"
   }
 
   function accountLines(acct) {
@@ -381,10 +381,14 @@ Panel {
         var l4 = pad("est. cost", 14) + costTxt + "   " + parts
         out += line(h(span(pad("est. cost", 14), dim) + span(costTxt, fg) + "   " + span(parts, dim), l4.length))
       }
+      if (st.note) {
+        var noteTxt = pad("", 14) + String(st.note).slice(0, cols - 18)
+        out += line(h(span(noteTxt, faint), noteTxt.length))
+      }
       out += line(h("", 0))
 
       // ---- models
-      out += rule("MODELS " + range + " · t toggles" + (st.priced ? " · $ est. at models.dev list price" : ""), false, false)
+      out += rule("MODELS " + range + " · t toggles" + (st.priced ? " · $ at list price" : ""), false, false)
       var models = st.models || []
       var maxReq = 0
       for (var i = 0; i < models.length; i++) maxReq = Math.max(maxReq, models[i].requests)
