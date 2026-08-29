@@ -11,8 +11,7 @@
                                               ▀█▄
 </pre>
 
-[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) usage and
-per-subscription quota in the [Omarchy](https://omarchy.org) bar.
+[CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) usage and per-subscription quota in the [Omarchy](https://omarchy.org) bar.
 
 ![Omaquota](assets/omaquota.png)
 
@@ -24,10 +23,7 @@ omarchy plugin add https://github.com/njpatel/omaquota.git --enable
 omarchy restart shell
 ```
 
-Setup asks for the proxy URL and its management key (the plaintext one, not
-the hash in `config.yaml`). The proxy needs `remote-management.allow-remote`
-if it is not on localhost, and the `cap-token-usage-tracker` plugin for the
-stats block.
+Setup asks for the proxy URL and its management key (the plaintext one, not the hash in `config.yaml`). The proxy needs `remote-management.allow-remote` if it is not on localhost, and the `cap-token-usage-tracker` plugin for the stats block.
 
 ## Use
 
