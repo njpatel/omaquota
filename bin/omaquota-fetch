@@ -45,7 +45,8 @@ CODEX_HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "codex-tui/0.149.1 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.149.1)",
 }
-XAI_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+XAI_WEEKLY_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+XAI_MONTHLY_URL = "https://cli-chat-proxy.grok.com/v1/billing"
 XAI_HEADERS = {
     "Authorization": "Bearer $TOKEN$",
     "x-xai-token-auth": "xai-grok-cli",
@@ -410,26 +411,47 @@ def codex_quota(body):
     return {"windows": wins, "plan": body.get("plan_type")}
 
 
-def xai_quota(body):
-    # Best effort: the grok billing payload is not documented; surface any
-    # obvious remaining/limit pair and otherwise leave the account status-only.
+def xai_cents(v):
+    """Billing amounts arrive as {"val": n} or a bare number."""
+    if isinstance(v, dict):
+        v = v.get("val")
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def xai_quota(weekly, monthly):
+    """grok billing: weekly credits (percent + per-product) and a monthly spend
+    cap in cents. Accounts without a metered cap report every value as 0 and
+    get no windows."""
     wins = []
-    if isinstance(body, dict):
-        for key in ("weekly", "week", "credits", "usage"):
-            v = body.get(key)
-            if isinstance(v, dict):
-                used = v.get("used") or v.get("used_credits")
-                limit = v.get("limit") or v.get("total") or v.get("credits")
-                if used is not None and limit:
-                    wins.append(window("xai:" + key, key, 100.0 * float(used) / float(limit),
-                                       parse_iso(v.get("reset_at") or v.get("resets_at"))))
-    return {"windows": wins, "plan": None}
+    w = (weekly or {}).get("config") or {}
+    period_end = parse_iso(((w.get("currentPeriod") or {}).get("end")) or w.get("billingPeriodEnd"))
+    if w.get("creditUsagePercent") is not None:
+        wins.append(window("xai:weekly", "7d credits", w.get("creditUsagePercent"), period_end))
+    for prod in w.get("productUsage") or []:
+        if not isinstance(prod, dict):
+            continue
+        pct = prod.get("usagePercent", prod.get("usedPercent", prod.get("percent")))
+        name = str(prod.get("name") or prod.get("product") or "product").lower()
+        if pct is not None:
+            wins.append(window("xai:product:" + name, "7d " + name[:7], pct, period_end))
+    m = (monthly or {}).get("config") or {}
+    limit, used = xai_cents(m.get("monthlyLimit")), xai_cents(m.get("used"))
+    if limit and used is not None:
+        wins.append(window("xai:monthly", "30d", 100.0 * min(used, limit) / limit, parse_iso(m.get("billingPeriodEnd"))))
+    cap, on_used = xai_cents(m.get("onDemandCap")), xai_cents(m.get("onDemandUsed"))
+    if cap and on_used is not None:
+        wins.append(window("xai:ondemand", "on-demand", 100.0 * on_used / cap, parse_iso(m.get("billingPeriodEnd"))))
+    return {"windows": wins, "plan": None, "note": None if wins else "no metered cap"}
 
 
+# provider -> (urls fetched through api-call, headers, parser taking one body per url)
 PROVIDERS = {
-    "claude": (CLAUDE_USAGE_URL, CLAUDE_HEADERS, claude_quota),
-    "codex": (CODEX_USAGE_URL, CODEX_HEADERS, codex_quota),
-    "xai": (XAI_BILLING_URL, XAI_HEADERS, xai_quota),
+    "claude": ([CLAUDE_USAGE_URL], CLAUDE_HEADERS, claude_quota),
+    "codex": ([CODEX_USAGE_URL], CODEX_HEADERS, codex_quota),
+    "xai": ([XAI_WEEKLY_URL, XAI_MONTHLY_URL], XAI_HEADERS, xai_quota),
 }
 
 
@@ -447,13 +469,18 @@ def fetch_quota(client, acct, prev, quota_interval, force):
             return p
         if prev.get("fetched_at") and now - prev["fetched_at"] < quota_interval and not prev.get("error"):
             return prev
-    url, headers, parse = prov
-    try:
-        status, body, retry = client.api_call(acct["auth_index"], url, headers)
-    except Exception as e:  # network / proxy error
-        rec = dict(prev or {})
-        rec.update({"error": "proxy: %s" % e, "stale": bool(rec.get("windows"))})
-        return rec
+    urls, headers, parse = prov
+    bodies = []
+    for url in urls:
+        try:
+            status, body, retry = client.api_call(acct["auth_index"], url, headers)
+        except Exception as e:  # network / proxy error
+            rec = dict(prev or {})
+            rec.update({"error": "proxy: %s" % e, "stale": bool(rec.get("windows"))})
+            return rec
+        if status < 200 or status >= 300:
+            break
+        bodies.append(body)
     if status == 429:
         rec = dict(prev or {})
         rec.update({"error": "rate limited", "retry_until": now + (retry or 3600),
@@ -469,7 +496,7 @@ def fetch_quota(client, acct, prev, quota_interval, force):
         rec.update({"error": ("HTTP %s %s" % (status, msg)).strip(), "stale": bool(rec.get("windows"))})
         rec.setdefault("windows", [])
         return rec
-    parsed = parse(body)
+    parsed = parse(*bodies)
     parsed.update({"fetched_at": now, "stale": False, "error": None, "retry_until": 0})
     return parsed
 

@@ -371,7 +371,7 @@ Panel {
       var acct = list[i], q = acct.quota || {}, wins = q.windows || []
       out += accountRow(displayName(acct.email), scrub ? dim : fg, fmtInt(acct.success), fmtInt(acct.failed), q.plan || "")
       if (wins.length === 0) {
-        var why = q.error || (acct.disabled ? "disabled" : (acct.unavailable ? "unavailable" : (acct.status || "?")))
+        var why = q.error || q.note || (acct.disabled ? "disabled" : (acct.unavailable ? "unavailable" : (acct.status || "?")))
         out += line(cat(gap(2), cell(why, inner - 2, q.error && q.error !== "disabled" ? urgent : dim)))
       }
       for (var w = 0; w < wins.length; w++) {
