@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "njpatel.omaquota",
+  "name": "Omaquota",
+  "version": "1.0.0",
+  "author": "Neil Patel",
+  "license": "Apache-2.0",
+  "description": "TUI-style dashboard for a remote CLIProxyAPI: proxy-wide usage stats and the remaining quota of every subscription behind it.",
+  "kinds": ["bar-widget"],
+  "activation": "on-demand",
+  "entryPoints": {
+    "barWidget": "Widget.qml"
+  },
+  "barWidget": {
+    "displayName": "Omaquota",
+    "description": "Requests, tokens, latency and top models for the proxy, then every Claude / Codex / xAI subscription with its usage windows and time to reset.",
+    "category": "AI",
+    "aliases": ["omaquota", "cliproxy", "cpa"],
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "baseUrl": "http://127.0.0.1:8317",
+      "hostLabel": "cliproxyapi",
+      "keyFile": "~/.config/omaquota/management-key",
+      "refreshIntervalSec": 300,
+      "quotaIntervalSec": 900,
+      "barMetric": "requests"
+    },
+    "schema": [
+      { "key": "baseUrl", "type": "string", "label": "CLIProxyAPI base URL", "defaultValue": "http://127.0.0.1:8317" },
+      { "key": "hostLabel", "type": "string", "label": "Host label shown in the panel", "defaultValue": "cliproxyapi" },
+      { "key": "keyFile", "type": "path", "label": "File holding the management key", "defaultValue": "~/.config/omaquota/management-key" },
+      { "key": "refreshIntervalSec", "type": "integer", "label": "Stats refresh (seconds)", "min": 60, "max": 3600, "step": 30, "defaultValue": 300 },
+      { "key": "quotaIntervalSec", "type": "integer", "label": "Per-account quota refresh (seconds)", "min": 300, "max": 7200, "step": 60, "defaultValue": 900, "description": "Quota lookups hit each provider's own API through the proxy; keep this gentle or Anthropic rate-limits the account." },
+      { "key": "barMetric", "type": "enum", "label": "Number shown in the bar", "options": ["requests", "tokens", "lowest"], "defaultValue": "requests" }
+    ]
+  }
+}

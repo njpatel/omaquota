@@ -1,0 +1,405 @@
+#!/usr/bin/env python3
+"""omaquota-fetch — collect a CLIProxyAPI snapshot for the Omaquota bar widget.
+
+Usage:  omaquota-fetch '<settings-json>' [--force] [--print]
+
+Talks to the proxy's management API (auth-files, the cap-token-usage-tracker
+plugin) and, for every enabled subscription, to the provider's own usage
+endpoint through the proxy's `api-call` passthrough (which injects the
+account's OAuth token). Writes one JSON snapshot to
+~/.local/state/omarchy/omaquota/snapshot.json, atomically.
+
+Quota lookups are rate-limited upstream (Anthropic answers 429 with a
+Retry-After when polled too eagerly), so they are cached for
+`quotaIntervalSec` and any 429 parks the account until Retry-After elapses,
+keeping the last good windows marked `stale`. Stdlib only.
+"""
+
+import json
+import os
+import sys
+import time
+import tempfile
+import urllib.request
+import urllib.error
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+
+STATE_DIR = os.path.expanduser("~/.local/state/omarchy/omaquota")
+SNAPSHOT = os.path.join(STATE_DIR, "snapshot.json")
+TIMEOUT = 12
+
+CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+CLAUDE_HEADERS = {
+    "Authorization": "Bearer $TOKEN$",
+    "Content-Type": "application/json",
+    "anthropic-beta": "oauth-2025-04-20",
+}
+CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+CODEX_HEADERS = {
+    "Authorization": "Bearer $TOKEN$",
+    "Content-Type": "application/json",
+    "User-Agent": "codex-tui/0.149.1 (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; 0.149.1)",
+}
+XAI_BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
+XAI_HEADERS = {
+    "Authorization": "Bearer $TOKEN$",
+    "x-xai-token-auth": "xai-grok-cli",
+    "x-grok-client-version": "0.2.91",
+    "accept": "*/*",
+}
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def parse_iso(s):
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+class Client:
+    def __init__(self, base_url, key):
+        self.base = base_url.rstrip("/")
+        self.key = key
+
+    def _req(self, path, method="GET", body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(self.base + path, data=data, method=method)
+        req.add_header("Authorization", "Bearer " + self.key)
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+            raw = r.read()
+        return json.loads(raw) if raw.strip() else None
+
+    def get(self, path):
+        return self._req(path)
+
+    def api_call(self, auth_index, url, headers):
+        """Provider request through the proxy; `$TOKEN$` becomes the account token."""
+        r = self._req("/v0/management/api-call", "POST", {
+            "auth_index": auth_index, "method": "GET", "url": url, "header": headers,
+        })
+        status = int(r.get("status_code") or 0)
+        body = r.get("body")
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except ValueError:
+                pass
+        hdrs = r.get("header") or {}
+        retry = None
+        for k, v in hdrs.items():
+            if k.lower() == "retry-after" and v:
+                try:
+                    retry = int(v[0] if isinstance(v, list) else v)
+                except ValueError:
+                    retry = None
+        return status, body, retry
+
+
+# ----------------------------------------------------------------- stats
+
+def summarize(summary, models, sources, retained_since, rng):
+    req = int(summary.get("requests") or 0)
+    failed = int(summary.get("failed_requests") or 0)
+    inp = int(summary.get("input_tokens") or 0)
+    out = int(summary.get("output_tokens") or 0)
+    cached = int(summary.get("cached_tokens") or 0)
+    total = int(summary.get("total_tokens") or 0)
+    lat_n = int(summary.get("latency_samples") or 0)
+    ttft_n = int(summary.get("ttft_samples") or 0)
+    rows = []
+    for m in sorted(models or [], key=lambda x: -int(x.get("requests") or 0))[:6]:
+        rows.append({
+            "model": m.get("model") or "?",
+            "requests": int(m.get("requests") or 0),
+            "failed": int(m.get("failed_requests") or 0),
+            "total_tokens": int(m.get("total_tokens") or 0),
+            "output_tokens": int(m.get("output_tokens") or 0),
+        })
+    return {
+        "range": rng,
+        "requests": req,
+        "failed": failed,
+        "input_tokens": inp,
+        "output_tokens": out,
+        "cached_tokens": cached,
+        "total_tokens": total,
+        "cache_hit": min(1.0, cached / inp) if inp else 0.0,
+        "avg_latency_ms": (int(summary.get("total_latency_ns") or 0) / lat_n / 1e6) if lat_n else None,
+        "avg_ttft_ms": (int(summary.get("total_ttft_ns") or 0) / ttft_n / 1e6) if ttft_n else None,
+        "models": rows,
+        "sources": len(sources or []),
+        "retained_since": retained_since,
+    }
+
+
+def fetch_stats(client, rng):
+    d = client.get("/v0/resource/plugins/cap-token-usage-tracker/stats/initial?range=" + rng)
+    return summarize(d.get("summary") or {}, d.get("models") or [], d.get("sources"),
+                     d.get("retained_since"), rng)
+
+
+# ----------------------------------------------------------------- quota
+
+def window(wid, label, used, resets_at_ts, period_s):
+    used = None if used is None else max(0.0, min(100.0, float(used)))
+    return {
+        "id": wid,
+        "label": label,
+        "used_pct": used,
+        "remaining_pct": None if used is None else round(100.0 - used, 1),
+        "resets_at": resets_at_ts,
+        "period_s": period_s,
+    }
+
+
+def claude_quota(body):
+    wins = []
+    named = [
+        ("five_hour", "5h", 5 * 3600),
+        ("seven_day", "7d", 7 * 86400),
+        ("seven_day_oauth_apps", "7d apps", 7 * 86400),
+        ("seven_day_opus", "7d opus", 7 * 86400),
+        ("seven_day_sonnet", "7d sonnet", 7 * 86400),
+        ("seven_day_cowork", "7d cowork", 7 * 86400),
+    ]
+    for key, label, period in named:
+        w = body.get(key)
+        if isinstance(w, dict) and w.get("utilization") is not None:
+            wins.append(window(key, label, w.get("utilization"), parse_iso(w.get("resets_at")), period))
+    # Model-scoped weekly limits (e.g. the Fable weekly cap) live in `limits[]`.
+    for lim in body.get("limits") or []:
+        if not isinstance(lim, dict) or lim.get("kind") != "weekly_scoped":
+            continue
+        model = ((lim.get("scope") or {}).get("model") or {}).get("display_name") or "scoped"
+        if lim.get("percent") is None:
+            continue
+        wins.append(window("weekly_scoped:" + model.lower(), "7d " + model.lower(),
+                           lim.get("percent"), parse_iso(lim.get("resets_at")), 7 * 86400))
+    extra = body.get("extra_usage") or {}
+    plan = None
+    return {"windows": wins, "plan": plan,
+            "extra_usage": {"enabled": bool(extra.get("is_enabled")),
+                            "utilization": extra.get("utilization")} if extra else None}
+
+
+def codex_label(seconds):
+    if not seconds:
+        return "?"
+    if seconds <= 18000:
+        return "5h"
+    if seconds <= 604800:
+        return "7d"
+    return "30d"
+
+
+def codex_quota(body):
+    wins = []
+    def add(prefix, rl):
+        if not isinstance(rl, dict):
+            return
+        for slot in ("primary_window", "secondary_window"):
+            w = rl.get(slot)
+            if not isinstance(w, dict):
+                continue
+            period = int(w.get("limit_window_seconds") or 0)
+            label = codex_label(period)
+            if prefix:
+                label = prefix + " " + label
+            used = w.get("used_percent")
+            if used is None and rl.get("limit_reached"):
+                used = 100
+            resets = w.get("reset_at")
+            if resets is None and w.get("reset_after_seconds") is not None:
+                resets = time.time() + float(w["reset_after_seconds"])
+            wins.append(window((prefix or "main") + ":" + slot, label, used,
+                               float(resets) if resets else None, period))
+    add("", body.get("rate_limit"))
+    add("review", body.get("code_review_rate_limit"))
+    for extra in body.get("additional_rate_limits") or []:
+        # "GPT-5.3-Codex-Spark" -> "spark": the last segment is the distinctive bit.
+        name = (extra.get("limit_name") or "extra").split("-")[-1].lower()
+        add(name[:8], extra.get("rate_limit"))
+    credits = body.get("rate_limit_reset_credits") or {}
+    return {"windows": wins, "plan": body.get("plan_type"),
+            "reset_credits": credits.get("available_count")}
+
+
+def xai_quota(body):
+    # Best effort: the grok billing payload is not documented; surface any
+    # obvious remaining/limit pair and otherwise leave the account status-only.
+    wins = []
+    if isinstance(body, dict):
+        for key in ("weekly", "week", "credits", "usage"):
+            v = body.get(key)
+            if isinstance(v, dict):
+                used = v.get("used") or v.get("used_credits")
+                limit = v.get("limit") or v.get("total") or v.get("credits")
+                if used is not None and limit:
+                    wins.append(window("xai:" + key, key, 100.0 * float(used) / float(limit),
+                                       parse_iso(v.get("reset_at") or v.get("resets_at")), None))
+    return {"windows": wins, "plan": None}
+
+
+PROVIDERS = {
+    "claude": (CLAUDE_USAGE_URL, CLAUDE_HEADERS, claude_quota),
+    "codex": (CODEX_USAGE_URL, CODEX_HEADERS, codex_quota),
+    "xai": (XAI_BILLING_URL, XAI_HEADERS, xai_quota),
+}
+
+
+def fetch_quota(client, acct, prev, quota_interval, force):
+    """Return the quota record for one account, reusing `prev` when fresh."""
+    now = time.time()
+    prov = PROVIDERS.get(acct["provider"])
+    if not prov:
+        return {"fetched_at": None, "stale": False, "error": "unsupported provider", "windows": []}
+    if prev and not force:
+        parked = prev.get("retry_until") or 0
+        if parked > now:
+            p = dict(prev)
+            p["stale"] = bool(p.get("windows"))
+            return p
+        if prev.get("fetched_at") and now - prev["fetched_at"] < quota_interval and not prev.get("error"):
+            return prev
+    url, headers, parse = prov
+    try:
+        status, body, retry = client.api_call(acct["auth_index"], url, headers)
+    except Exception as e:  # network / proxy error
+        rec = dict(prev or {})
+        rec.update({"error": "proxy: %s" % e, "stale": bool(rec.get("windows"))})
+        return rec
+    if status == 429:
+        rec = dict(prev or {})
+        rec.update({"error": "rate limited", "retry_until": now + (retry or 3600),
+                    "stale": bool(rec.get("windows"))})
+        rec.setdefault("windows", [])
+        return rec
+    if status < 200 or status >= 300 or not isinstance(body, dict):
+        msg = ""
+        if isinstance(body, dict):
+            err = body.get("error")
+            msg = err.get("message") if isinstance(err, dict) else (err or body.get("message") or "")
+        rec = dict(prev or {})
+        rec.update({"error": ("HTTP %s %s" % (status, msg)).strip(), "stale": bool(rec.get("windows"))})
+        rec.setdefault("windows", [])
+        return rec
+    parsed = parse(body)
+    parsed.update({"fetched_at": now, "stale": False, "error": None, "retry_until": 0})
+    return parsed
+
+
+# ----------------------------------------------------------------- main
+
+def load_prev():
+    try:
+        with open(SNAPSHOT) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def write_snapshot(snap):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=STATE_DIR, prefix=".snapshot.", suffix=".json")
+    with os.fdopen(fd, "w") as f:
+        json.dump(snap, f)
+    os.replace(tmp, SNAPSHOT)
+
+
+def main():
+    settings = {}
+    force = "--force" in sys.argv
+    do_print = "--print" in sys.argv
+    for a in sys.argv[1:]:
+        if a.startswith("{"):
+            settings = json.loads(a)
+    base_url = settings.get("baseUrl") or "http://127.0.0.1:8317"
+    key_file = os.path.expanduser(settings.get("keyFile") or "~/.config/omaquota/management-key")
+    quota_interval = int(settings.get("quotaIntervalSec") or 900)
+    host = settings.get("hostLabel") or base_url
+
+    prev = load_prev()
+    snap = {"generated_at": now_iso(), "generated_ts": time.time(), "host": host,
+            "base_url": base_url, "ok": False, "error": None,
+            "stats": prev.get("stats") or {}, "accounts": prev.get("accounts") or []}
+    try:
+        with open(key_file) as f:
+            key = f.read().strip()
+    except OSError as e:
+        snap["error"] = "no management key at %s — run omaquota-setup" % key_file
+        write_snapshot(snap)
+        return 1
+    client = Client(base_url, key)
+
+    try:
+        files = (client.get("/v0/management/auth-files") or {}).get("files") or []
+    except Exception as e:
+        snap["error"] = "proxy unreachable: %s" % e
+        for a in snap["accounts"]:
+            a["stale"] = True
+        write_snapshot(snap)
+        if do_print:
+            print(json.dumps(snap, indent=1))
+        return 1
+
+    stats = {}
+    for rng in ("24h", "7d"):
+        try:
+            stats[rng] = fetch_stats(client, rng)
+        except Exception as e:
+            stats[rng] = (prev.get("stats") or {}).get(rng) or {"range": rng, "error": str(e)}
+    snap["stats"] = stats
+
+    prev_q = {a["id"]: a.get("quota") for a in (prev.get("accounts") or []) if a.get("id")}
+    accounts = []
+    for f in files:
+        acct = {
+            "id": f.get("id") or f.get("name"),
+            "auth_index": f.get("auth_index"),
+            "provider": f.get("provider") or f.get("type") or "?",
+            "email": f.get("email") or f.get("account") or f.get("label") or f.get("name"),
+            "label": f.get("label") or "",
+            "status": f.get("status") or "",
+            "status_message": f.get("status_message") or "",
+            "disabled": bool(f.get("disabled")),
+            "unavailable": bool(f.get("unavailable")),
+            "success": int(f.get("success") or 0),
+            "failed": int(f.get("failed") or 0),
+            "recent": [
+                {"success": int(r.get("success") or 0), "failed": int(r.get("failed") or 0)}
+                for r in (f.get("recent_requests") or [])
+            ],
+            "last_refresh": f.get("last_refresh"),
+        }
+        accounts.append(acct)
+
+    def work(acct):
+        if acct["disabled"] or not acct["auth_index"]:
+            return {"fetched_at": None, "stale": False, "error": "disabled" if acct["disabled"] else "no auth index", "windows": []}
+        return fetch_quota(client, acct, prev_q.get(acct["id"]), quota_interval, force)
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for acct, q in zip(accounts, pool.map(work, accounts)):
+            acct["quota"] = q
+
+    order = {"claude": 0, "codex": 1, "xai": 2}
+    accounts.sort(key=lambda a: (order.get(a["provider"], 9), a["email"].lower()))
+    snap["accounts"] = accounts
+    snap["ok"] = True
+    write_snapshot(snap)
+    if do_print:
+        print(json.dumps(snap, indent=1))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

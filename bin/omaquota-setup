@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# omaquota-setup — point the widget at a CLIProxyAPI instance.
+#
+#   omaquota-setup                      interactive
+#   omaquota-setup <base-url> [label]   non-interactive; the key is read from
+#                                       stdin (pipe it in) or prompted for
+#
+# Writes the management key to ~/.config/omaquota/management-key (0600),
+# stores the URL and label on the bar entry in ~/.config/omarchy/shell.json,
+# makes sure the widget is on the bar, and triggers a first refresh.
+set -euo pipefail
+
+PLUGIN_ID="njpatel.omaquota"
+KEY_FILE="$HOME/.config/omaquota/management-key"
+
+base_url="${1:-}"
+label="${2:-}"
+
+if [[ -z $base_url ]]; then
+  read -rp "CLIProxyAPI base URL [http://127.0.0.1:8317]: " base_url
+  base_url="${base_url:-http://127.0.0.1:8317}"
+fi
+if [[ -z $label ]]; then
+  default_label="$(sed -E 's|^[a-z]+://||; s|[:/].*$||' <<<"$base_url")"
+  read -rp "Label shown in the panel [$default_label]: " label
+  label="${label:-$default_label}"
+fi
+
+if [[ -t 0 ]]; then
+  read -rsp "Management key (plaintext, not the bcrypt hash in config.yaml): " key
+  echo
+else
+  key="$(cat)"
+fi
+key="${key//$'\n'/}"
+[[ -n $key ]] || { echo "omaquota-setup: empty key" >&2; exit 1; }
+
+umask 077
+mkdir -p "$(dirname "$KEY_FILE")"
+printf '%s\n' "$key" >"$KEY_FILE"
+chmod 600 "$KEY_FILE"
+
+# Check the key before touching the bar.
+code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $key" \
+  "${base_url%/}/v0/management/usage-statistics-enabled" || true)"
+case "$code" in
+  200) echo "✓ management API reachable at $base_url" ;;
+  401) echo "✗ $base_url rejected the key (401). Repeated failures get your IP banned for 30 minutes — double-check it." >&2; exit 1 ;;
+  000) echo "✗ could not reach $base_url" >&2; exit 1 ;;
+  *) echo "? unexpected HTTP $code from $base_url — continuing" ;;
+esac
+
+omarchy bar set "$PLUGIN_ID" baseUrl "$base_url" >/dev/null
+omarchy bar set "$PLUGIN_ID" hostLabel "$label" >/dev/null
+omarchy plugin enable "$PLUGIN_ID" >/dev/null 2>&1 || true
+
+omarchy-shell "$PLUGIN_ID" refresh >/dev/null 2>&1 || true
+echo "✓ Omaquota configured — key in $KEY_FILE, settings on the bar entry in ~/.config/omarchy/shell.json"
