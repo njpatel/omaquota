@@ -249,65 +249,177 @@ Panel {
   }
 
   // ------------------------------------------------------------ TUI text
+  //
+  // Everything is laid out on fixed-width cells so long values truncate with
+  // an ellipsis instead of pushing their neighbours off the edge. Inner width
+  // is `cols - 4` (the "│ " and " │" frame).
   readonly property int cols: 62
+  readonly property int inner: cols - 4
   readonly property string tui: buildTui()
 
-  function line(inner, color) {
-    // `inner` is already HTML; `plainLen` tells us how much to pad.
-    return span("│ ", faint) + inner.html + esc(rep(" ", Math.max(0, cols - 4 - inner.len))) + span(" │", faint) + "<br>"
-  }
   function h(text, len) { return { html: text, len: len } }
+  function cat() {
+    var html = "", len = 0
+    for (var i = 0; i < arguments.length; i++) { html += arguments[i].html; len += arguments[i].len }
+    return h(html, len)
+  }
+  // A cell: text clipped to `w` (with an ellipsis), padded, coloured.
+  function cell(text, w, color, right) {
+    text = String(text === null || text === undefined ? "" : text)
+    if (text.length > w) text = w > 1 ? text.slice(0, w - 1) + "…" : text.slice(0, w)
+    var padded = right ? lpad(text, w) : pad(text, w)
+    return h(span(padded, color), w)
+  }
+  function gap(n) { return h(esc(rep(" ", n)), n) }
+  function line(inner) {
+    return span("│ ", faint) + inner.html + esc(rep(" ", Math.max(0, root.inner - inner.len))) + span(" │", faint) + "<br>"
+  }
+  function blank() { return line(h("", 0)) }
   function rule(title, first, last) {
     var l = first ? "┌" : (last ? "└" : "├"), r = first ? "┐" : (last ? "┘" : "┤")
     if (!title) return span(l + rep("─", cols - 2) + r, faint) + "<br>"
-    var t = "─ " + title + " "
-    return span(l + "─ ", faint) + span(title, dim) + span(" " + rep("─", cols - 2 - t.length) + r, faint) + "<br>"
+    if (title.length > cols - 6) title = title.slice(0, cols - 7) + "…"
+    return span(l + "─ ", faint) + span(title, dim) + span(" " + rep("─", cols - 4 - title.length) + r, faint) + "<br>"
+  }
+  // Drop a trailing snapshot date from model ids: claude-haiku-4-5-20251001.
+  function modelName(m) { return String(m).replace(/-20\d{6}$/, "") }
+
+  // label/value pairs on a 3-column grid: 9-char label, 7-char value, 2 gap.
+  function kv(label, value, color) {
+    return cat(cell(label, 8, dim), gap(1), cell(value, 7, color || fg, true), gap(2))
   }
 
-  function accountLines(acct) {
+  function buildTui() {
     var out = ""
-    var q = acct.quota || {}
-    var statusTxt = acct.disabled ? "disabled" : (acct.unavailable ? "unavailable" : (acct.status || "?"))
-    var right = "ok " + fmtInt(acct.success) + " · fail " + fmtInt(acct.failed)
-    if (q.plan) right = q.plan + " · " + right
-    var nameW = cols - 4 - right.length - 2
-    var nameTxt = pad(displayName(acct.email), nameW)
-    out += line(h(span(nameTxt, scrub ? dim : fg) + "  " + span(right, dim), nameTxt.length + 2 + right.length))
+    var snap = root.snapshot
+    var gen = snap && snap.generated_ts ? fmtAge(snap.generated_ts) : "never"
+    out += rule("CLIPROXYAPI @ " + hostLabel, true, false)
 
-    var wins = q.windows || []
-    if (wins.length === 0) {
-      var why = q.error ? String(q.error) : statusTxt
-      var w0 = "  " + why.slice(0, cols - 8)
-      out += line(h(span(w0, q.error && q.error !== "disabled" ? urgent : dim), w0.length))
+    if (!snap) {
+      out += line(cell("no snapshot yet — fetching…", inner, dim))
+      out += rule("", false, true)
+      return out
     }
-    for (var w = 0; w < wins.length; w++) {
-      var win = wins[w]
-      var lab = pad(win.label, 10)
-      var barW2 = 20
-      var left = win.remaining_pct === null || win.remaining_pct === undefined ? "  —" : lpad(Math.round(win.remaining_pct) + "%", 4)
-      var resets = win.resets_at ? "resets " + fmtDuration(win.resets_at - nowMs / 1000) : ""
-      var plain = "  " + lab + " " + rep("x", barW2) + " " + left + " left  " + resets
-      var leftColor = win.remaining_pct !== null && win.remaining_pct <= 10 ? urgent : fg
-      out += line(h("  " + span(lab, dim) + " " + meter(win.remaining_pct, barW2) + " " + span(left, leftColor)
-                     + span(" left  ", dim) + span(resets, q.stale ? faint : dim), plain.length))
+    if (!snap.ok) {
+      out += line(cell("✗ " + String(snap.error || "offline"), inner, urgent))
+      out += line(cell("last good data " + gen, inner, dim))
     }
-    if (q.stale || q.error) {
-      var note = "  " + (q.stale ? "stale · " : "") + (q.error ? String(q.error) : "") + (q.retry_until && q.retry_until > nowMs / 1000 ? " · retry in " + fmtDuration(q.retry_until - nowMs / 1000) : "")
-      if (wins.length > 0) out += line(h(span(note.slice(0, cols - 4), faint), Math.min(note.length, cols - 4)))
+
+    // ---- usage
+    var st = root.stats
+    var usageTitle = "USAGE " + range + " · t toggles"
+    if (st && st.covered_since) usageTitle += " · since " + fmtClock(st.covered_since)
+    out += rule(usageTitle, false, false)
+    if (st && st.requests !== undefined) {
+      var failPct = st.requests > 0 ? (100 * st.failed / st.requests) : 0
+      out += line(cat(kv("requests", fmtInt(st.requests)),
+                      kv("failed", fmtInt(st.failed), st.failed > 0 ? accent : fg),
+                      kv("rate", failPct.toFixed(1) + "%", failPct >= 5 ? urgent : fg)))
+      out += line(cat(kv("input", fmtNum(st.input_tokens)),
+                      kv("output", fmtNum(st.output_tokens)),
+                      kv("cached", Math.round(100 * (st.cache_hit || 0)) + "%")))
+      if (st.priced && st.requests > 0) {
+        out += line(cat(kv("est cost", fmtUsd(st.cost_usd)),
+                        kv("cache", fmtUsd(st.cost_cache_usd)),
+                        kv("in+out", fmtUsd((st.cost_in_usd || 0) + (st.cost_out_usd || 0)))))
+      }
+      out += line(cat(kv("latency", fmtMs(st.avg_latency_ms)), kv("ttft", fmtMs(st.avg_ttft_ms))))
+      if (st.note) out += line(cell(String(st.note), inner, faint))
+      if (st.unpriced_requests > 0) out += line(cell(fmtInt(st.unpriced_requests) + " requests on models without a list price", inner, faint))
+      out += blank()
+
+      // ---- models: name 20 · share 10 · reqs 7 · tokens 8 · cost 8 = 57
+      var models = st.models || []
+      var maxReq = 0
+      for (var i = 0; i < models.length; i++) maxReq = Math.max(maxReq, models[i].requests)
+      out += line(cat(cell("model", 20, faint), gap(1), cell("share", 10, faint), gap(1),
+                      cell("reqs", 7, faint, true), gap(1), cell("tokens", 8, faint, true), gap(1),
+                      cell(st.priced ? "cost" : "", 8, faint, true)))
+      if (models.length === 0) out += line(cell("no traffic in this range", inner, dim))
+      for (var m = 0; m < models.length; m++) {
+        var md = models[m]
+        out += line(cat(cell(modelName(md.model), 20, fg), gap(1), h(share(md.requests, maxReq, 10), 10), gap(1),
+                        cell(fmtInt(md.requests), 7, fg, true), gap(1), cell(fmtNum(md.total_tokens), 8, dim, true), gap(1),
+                        cell(st.priced ? (md.priced === false ? "—" : fmtUsd(md.cost)) : "", 8, fg, true)))
+      }
+    } else {
+      out += line(cell("stats unavailable" + (st && st.error ? ": " + String(st.error) : ""), inner, dim))
+    }
+    out += blank()
+
+    // ---- subscriptions
+    out += rule("SUBSCRIPTIONS " + accounts.length + " · lowest " + (lowestRemaining > 100 ? "—" : Math.round(lowestRemaining) + "% left")
+                + (expanded ? "" : " · aggregated"), false, false)
+    var groups = [], byProvider = ({})
+    for (var a = 0; a < accounts.length; a++) {
+      var prov = accounts[a].provider
+      if (!byProvider[prov]) { byProvider[prov] = []; groups.push(prov) }
+      byProvider[prov].push(accounts[a])
+    }
+    if (!expanded && groups.length > 0) out += providerHeader("")
+    for (var g = 0; g < groups.length; g++) {
+      var list = byProvider[groups[g]]
+      out += (expanded ? expandedGroup(groups[g], list) : aggregateGroup(groups[g], list))
+      out += blank()
+    }
+
+    // ---- footer
+    var foot = "updated " + gen + (fetching ? " · fetching…" : "") + "  j/k r t e x/h" + (scrub ? " · scrubbed" : "")
+    out += rule("", false, false)
+    out += line(cell(foot, inner, fg))
+    out += rule("", false, true)
+    return out
+  }
+
+  // Provider header row: name cell 36 · ok 7 · fail 6 · plan 5 (= 57 with gaps)
+  function providerHeader(title, subtitle) {
+    return line(cat(cell(title, 36, accent), gap(1), cell("ok", 7, faint, true), gap(1),
+                    cell("fail", 6, faint, true), gap(1), cell("plan", 5, faint)))
+  }
+  function accountRow(name, ok, fail, plan, nameColor) {
+    return line(cat(cell(name, 36, nameColor), gap(1), cell(fmtInt(ok), 7, dim, true), gap(1),
+                    cell(fmtInt(fail), 6, fail > 0 ? dim : faint, true), gap(1), cell(plan || "", 5, dim)))
+  }
+  // Window row: indent 2 · label 10 · meter 18 · left 9 · gap 2 · tail 15 = 58
+  function windowRow(label, remaining, leftText, leftColor, tail, tailColor) {
+    return line(cat(gap(2), cell(label, 10, dim), gap(1), h(meter(remaining, 18), 18), gap(1),
+                    cell(leftText, 9, leftColor, true), gap(2), cell(tail, 15, tailColor)))
+  }
+  function fmtDurationShort(sec) { return fmtDuration(sec).replace(/ /g, "") }
+
+  function expandedGroup(provider, list) {
+    var out = providerHeader(provider.toUpperCase())
+    for (var i = 0; i < list.length; i++) {
+      var acct = list[i], q = acct.quota || {}
+      out += accountRow(displayName(acct.email), acct.success, acct.failed, q.plan, scrub ? dim : fg)
+      var wins = q.windows || []
+      if (wins.length === 0) {
+        var why = q.error ? String(q.error) : (acct.disabled ? "disabled" : (acct.unavailable ? "unavailable" : (acct.status || "?")))
+        out += line(cat(gap(2), cell(why, inner - 2, q.error && q.error !== "disabled" ? urgent : dim)))
+      }
+      for (var w = 0; w < wins.length; w++) {
+        var win = wins[w]
+        var left = win.remaining_pct === null || win.remaining_pct === undefined ? "—" : Math.round(win.remaining_pct) + "% left"
+        var resets = win.resets_at ? "resets " + fmtDuration(win.resets_at - nowMs / 1000) : ""
+        out += windowRow(win.label, win.remaining_pct, left,
+                         win.remaining_pct !== null && win.remaining_pct <= 10 ? urgent : fg, resets, q.stale ? faint : dim)
+      }
+      if (q.stale || q.error) {
+        var note = (q.stale ? "stale · " : "") + (q.error ? String(q.error) : "")
+          + (q.retry_until && q.retry_until > nowMs / 1000 ? " · retry in " + fmtDuration(q.retry_until - nowMs / 1000) : "")
+        if (wins.length > 0) out += line(cat(gap(2), cell(note, inner - 2, faint)))
+      }
     }
     return out
   }
 
-  // One block per provider: account count, summed counters, then for every
-  // window label the average and the worst remaining across the accounts.
-  function aggregateLines(plabel, list) {
-    var out = ""
-    var ok = 0, fail = 0, live = 0
-    var byLabel = ({}), labels = []
+  // One block per provider: summed counters, then for every window label the
+  // average and the worst remaining across the accounts.
+  function aggregateGroup(provider, list) {
+    var ok = 0, fail = 0, live = 0, byLabel = ({}), labels = []
     for (var i = 0; i < list.length; i++) {
-      var acct = list[i]
+      var acct = list[i], q = acct.quota || {}
       ok += acct.success; fail += acct.failed
-      var q = acct.quota || {}
       if ((q.windows || []).length > 0) live++
       for (var w = 0; w < (q.windows || []).length; w++) {
         var win = q.windows[w]
@@ -318,121 +430,16 @@ Panel {
         if (win.remaining_pct < e.min) { e.min = win.remaining_pct; e.soonest = win.resets_at || null }
       }
     }
-    var right = "ok " + fmtInt(ok) + " · fail " + fmtInt(fail)
-    var head = plabel + "  " + list.length + (list.length === 1 ? " account" : " accounts") + (live < list.length ? " (" + live + " reporting)" : "")
-    var headTxt = pad(head, cols - 4 - right.length - 2)
-    out += line(h(span(headTxt, accent) + "  " + span(right, dim), headTxt.length + 2 + right.length))
-    if (labels.length === 0) {
-      var none = "  no quota data"
-      out += line(h(span(none, dim), none.length))
-    }
+    var title = provider.toUpperCase() + " · " + list.length + (list.length === 1 ? " account" : " accounts")
+      + (live < list.length ? " · " + live + " reporting" : "")
+    var out = line(cat(cell(title, 36, accent), gap(1), cell(fmtInt(ok), 7, dim, true), gap(1),
+                       cell(fmtInt(fail), 6, dim, true), gap(1), cell("", 5, dim)))
+    if (labels.length === 0) out += line(cat(gap(2), cell("no quota data", inner - 2, dim)))
     for (var l = 0; l < labels.length; l++) {
-      var e2 = byLabel[labels[l]]
-      var avg = e2.sum / e2.n
-      var lab = pad(labels[l], 10)
-      var barW2 = 20
-      var avgTxt = lpad(Math.round(avg) + "%", 4)
-      var minTxt = "min " + Math.round(e2.min) + "%" + (e2.soonest ? " · " + fmtDuration(e2.soonest - nowMs / 1000) : "")
-      var plain = "  " + lab + " " + rep("x", barW2) + " " + avgTxt + " avg  " + minTxt
-      out += line(h("  " + span(lab, dim) + " " + meter(avg, barW2) + " " + span(avgTxt, avg <= 10 ? urgent : fg)
-                     + span(" avg  ", dim) + span(minTxt, e2.min <= 10 ? urgent : dim), plain.length))
+      var e2 = byLabel[labels[l]], avg = e2.sum / e2.n
+      var tail = "min " + Math.round(e2.min) + "%" + (e2.soonest ? " " + fmtDurationShort(e2.soonest - nowMs / 1000) : "")
+      out += windowRow(labels[l], avg, Math.round(avg) + "% avg", avg <= 10 ? urgent : fg, tail, e2.min <= 10 ? urgent : dim)
     }
-    return out
-  }
-
-  function buildTui() {
-    var out = ""
-    var snap = root.snapshot
-    var gen = snap && snap.generated_ts ? fmtAge(snap.generated_ts) : "never"
-    var head = "CLIPROXYAPI @ " + hostLabel
-    out += rule(head, true, false)
-
-    if (!snap) {
-      out += line(h(span("no snapshot yet — fetching…", dim), 27))
-      out += rule("", false, true)
-      return out
-    }
-    if (!snap.ok) {
-      var err = String(snap.error || "offline")
-      out += line(h(span("✗ " + err.slice(0, cols - 6), urgent), Math.min(err.length + 2, cols - 6)))
-      out += line(h(span("last good data " + gen, dim), 15 + gen.length))
-    }
-
-    // ---- stats block
-    var st = root.stats
-    if (st && st.requests !== undefined) {
-      var failPct = st.requests > 0 ? (100 * st.failed / st.requests) : 0
-      var since = st.covered_since ? "  since " + fmtClock(st.covered_since) : ""
-      var l1 = pad("requests " + range, 14) + lpad(fmtInt(st.requests), 8) + "   failed " + fmtInt(st.failed) + " (" + failPct.toFixed(1) + "%)" + since
-      out += line(h(span(pad("requests " + range, 14), dim) + span(lpad(fmtInt(st.requests), 8), fg)
-                     + span("   failed ", dim) + span(fmtInt(st.failed) + " (" + failPct.toFixed(1) + "%)", st.failed > 0 ? accent : fg)
-                     + span(since, faint), l1.length))
-      var l2 = pad("tokens", 14) + "in " + lpad(fmtNum(st.input_tokens), 7) + "  out " + lpad(fmtNum(st.output_tokens), 7) + "  cached " + fmtNum(st.cached_tokens) + " (" + Math.round(100 * (st.cache_hit || 0)) + "%)"
-      out += line(h(span(pad("tokens", 14), dim) + span("in ", dim) + span(lpad(fmtNum(st.input_tokens), 7), fg)
-                     + span("  out ", dim) + span(lpad(fmtNum(st.output_tokens), 7), fg)
-                     + span("  cached ", dim) + span(fmtNum(st.cached_tokens) + " (" + Math.round(100 * (st.cache_hit || 0)) + "%)", fg), l2.length))
-      var l3 = pad("latency", 14) + "avg " + lpad(fmtMs(st.avg_latency_ms), 7) + "  ttft " + lpad(fmtMs(st.avg_ttft_ms), 7)
-      out += line(h(span(pad("latency", 14), dim) + span("avg ", dim) + span(lpad(fmtMs(st.avg_latency_ms), 7), fg)
-                     + span("  ttft ", dim) + span(lpad(fmtMs(st.avg_ttft_ms), 7), fg), l3.length))
-      if (st.priced && st.requests > 0) {
-        var costTxt = lpad(fmtUsd(st.cost_usd), 8)
-        var parts = "in " + fmtUsd(st.cost_in_usd) + " · out " + fmtUsd(st.cost_out_usd) + " · cache " + fmtUsd(st.cost_cache_usd)
-        if (st.unpriced_requests > 0) parts += " · " + fmtInt(st.unpriced_requests) + " unpriced"
-        var l4 = pad("est. cost", 14) + costTxt + "   " + parts
-        out += line(h(span(pad("est. cost", 14), dim) + span(costTxt, fg) + "   " + span(parts, dim), l4.length))
-      }
-      if (st.note) {
-        var noteTxt = pad("", 14) + String(st.note).slice(0, cols - 18)
-        out += line(h(span(noteTxt, faint), noteTxt.length))
-      }
-      out += line(h("", 0))
-
-      // ---- models
-      out += rule("MODELS " + range + " · t toggles" + (st.priced ? " · $ at list price" : ""), false, false)
-      var models = st.models || []
-      var maxReq = 0
-      for (var i = 0; i < models.length; i++) maxReq = Math.max(maxReq, models[i].requests)
-      if (models.length === 0) out += line(h(span("no traffic in this range", dim), 24))
-      for (var m = 0; m < models.length; m++) {
-        var md = models[m]
-        var nameW = 18, barW = 13
-        var costCol = st.priced ? " " + lpad(md.priced === false ? "—" : fmtUsd(md.cost), 7) : ""
-        var txt = pad(md.model, nameW) + " " + rep("x", barW) + " " + lpad(fmtInt(md.requests), 6) + " " + lpad(fmtNum(md.total_tokens), 7) + costCol
-        out += line(h(span(pad(md.model, nameW), fg) + " " + share(md.requests, maxReq, barW) + " "
-                       + span(lpad(fmtInt(md.requests), 6), fg) + " " + span(lpad(fmtNum(md.total_tokens), 7), dim)
-                       + (costCol ? span(costCol, fg) : ""), txt.length))
-      }
-      out += line(h("", 0))
-    } else {
-      out += line(h(span("stats unavailable" + (st && st.error ? ": " + String(st.error).slice(0, 36) : ""), dim), 17))
-    }
-
-    // ---- subscriptions
-    out += rule("SUBSCRIPTIONS  " + accounts.length + " · lowest " + (lowestRemaining > 100 ? "—" : Math.round(lowestRemaining) + "% left")
-                + (expanded ? "" : " · aggregated"), false, false)
-    var groups = []
-    var byProvider = ({})
-    for (var a = 0; a < accounts.length; a++) {
-      var prov = accounts[a].provider
-      if (!byProvider[prov]) { byProvider[prov] = []; groups.push(prov) }
-      byProvider[prov].push(accounts[a])
-    }
-    for (var g = 0; g < groups.length; g++) {
-      var list = byProvider[groups[g]]
-      var plabel = groups[g].toUpperCase()
-      if (expanded) {
-        out += line(h(span(plabel, accent), plabel.length))
-        for (var i2 = 0; i2 < list.length; i2++) out += accountLines(list[i2])
-      } else {
-        out += aggregateLines(plabel, list)
-      }
-      out += line(h("", 0))
-    }
-    // ---- footer
-    var foot = "updated " + gen + (fetching ? " · fetching…" : "") + "  j/k r t e x/h" + (scrub ? " · scrubbed" : "")
-    out += rule("", false, false)
-    out += line(h(span(foot.slice(0, cols - 4), fg), Math.min(foot.length, cols - 4)))
-    out += rule("", false, true)
     return out
   }
 
