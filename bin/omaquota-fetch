@@ -26,7 +26,6 @@ import sys
 import time
 import tempfile
 import urllib.request
-import urllib.error
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
@@ -124,9 +123,8 @@ PROVIDER_MAP = {
     "qwen": ["alibaba"], "iflow": ["iflow"], "vertex": ["google-vertex"],
 }
 
-EMPTY_BUCKET = {"requests": 0, "failed": 0, "uncached": 0, "cache_read": 0,
-                "cache_write": 0, "output": 0, "reasoning": 0,
-                "latency_ms": 0, "latency_n": 0, "ttft_ms": 0, "ttft_n": 0}
+EMPTY_BUCKET = {"requests": 0, "failed": 0, "uncached": 0, "cache_read": 0, "cache_write": 0,
+                "output": 0, "latency_ms": 0, "latency_n": 0, "ttft_ms": 0, "ttft_n": 0}
 
 
 def load_json(path, default):
@@ -146,26 +144,23 @@ def save_json(path, data):
 
 
 def record_tokens(rec):
-    """Return (uncached_in, cache_read, cache_write, output, reasoning)."""
+    """Return (uncached_in, cache_read, cache_write, output)."""
     tb = rec.get("token_breakdown") or {}
     if isinstance(tb.get("input"), dict):
         i, o = tb["input"], tb.get("output") or {}
         return (int(i.get("uncached_tokens") or 0), int(i.get("cache_read_tokens") or 0),
-                int(i.get("cache_write_tokens") or 0), int(o.get("total_tokens") or 0),
-                int(o.get("reasoning_tokens") or 0))
+                int(i.get("cache_write_tokens") or 0), int(o.get("total_tokens") or 0))
     t = rec.get("tokens") or {}
     inp = int(t.get("input_tokens") or 0)
     cached = int(t.get("cache_read_tokens") or t.get("cached_tokens") or 0)
     # OpenAI counts cached tokens inside input_tokens, Anthropic does not.
     uncached = inp - cached if inp >= cached else inp
-    return (max(0, uncached), cached, int(t.get("cache_creation_tokens") or 0),
-            int(t.get("output_tokens") or 0), int(t.get("reasoning_tokens") or 0))
+    return max(0, uncached), cached, int(t.get("cache_creation_tokens") or 0), int(t.get("output_tokens") or 0)
 
 
 def drain_queue(client, usage):
     """Pop every pending usage record and fold it into hourly buckets."""
     buckets = usage.setdefault("buckets", {})
-    popped = 0
     for _ in range(40):
         batch = client.get("/v0/management/usage-queue?count=500") or []
         if not isinstance(batch, list) or not batch:
@@ -178,24 +173,20 @@ def drain_queue(client, usage):
             b = buckets.get(key)
             if b is None:
                 b = dict(EMPTY_BUCKET); buckets[key] = b
-            unc, cr, cw, out, reas = record_tokens(rec)
+            unc, cr, cw, out = record_tokens(rec)
             b["requests"] += 1
             b["failed"] += 1 if rec.get("failed") else 0
-            b["uncached"] += unc; b["cache_read"] += cr; b["cache_write"] += cw
-            b["output"] += out; b["reasoning"] += reas
+            b["uncached"] += unc; b["cache_read"] += cr; b["cache_write"] += cw; b["output"] += out
             if rec.get("latency_ms") is not None:
                 b["latency_ms"] += int(rec["latency_ms"]); b["latency_n"] += 1
             if rec.get("ttft_ms") is not None:
                 b["ttft_ms"] += int(rec["ttft_ms"]); b["ttft_n"] += 1
-        popped += len(batch)
         if len(batch) < 500:
             break
     usage.setdefault("first_seen", time.time())
-    usage["last_pop"] = time.time()
     cutoff = time.time() - RETAIN_S
     for key in [k for k in buckets if int(k.split("|", 1)[0]) < cutoff]:
         del buckets[key]
-    return popped
 
 
 def backfill_from_tracker(client, usage):
@@ -238,7 +229,6 @@ def backfill_from_tracker(client, usage):
         b["cache_read"] += cr
         b["cache_write"] += int(row.get("cache_creation_tokens") or 0)
         b["output"] += int(row.get("output_tokens") or 0)
-        b["reasoning"] += int(row.get("reasoning_tokens") or 0)
         b["latency_ms"] += int(row.get("total_latency_ns") or 0) // 1000000
         b["latency_n"] += int(row.get("latency_samples") or 0)
         b["ttft_ms"] += int(row.get("total_ttft_ns") or 0) // 1000000
@@ -251,7 +241,7 @@ def backfill_from_tracker(client, usage):
 
 
 def load_prices():
-    """models.dev cost table, refreshed daily. Returns {(provider, model): cost} + by model."""
+    """models.dev cost table keyed "provider|model", refreshed daily."""
     cache = load_json(PRICES_FILE, {})
     if not cache or time.time() - (cache.get("fetched_at") or 0) > 86400:
         try:
@@ -299,12 +289,11 @@ def stats_for(usage, table, rng):
     since = now - span
     tot = dict(EMPTY_BUCKET)
     tot.update({"cost": 0.0, "cost_in": 0.0, "cost_out": 0.0, "cost_cache": 0.0, "unpriced": 0})
-    models, sources = {}, set()
+    models = {}
     for key, b in usage.get("buckets", {}).items():
-        hour, provider, model, source = key.split("|", 3)
+        hour, provider, model, _source = key.split("|", 3)
         if int(hour) + 3600 <= since:
             continue
-        sources.add(source)
         m = models.setdefault(model, {"model": model, "provider": provider, "requests": 0,
                                       "failed": 0, "total_tokens": 0, "output_tokens": 0,
                                       "cost": 0.0, "priced": True})
@@ -332,7 +321,6 @@ def stats_for(usage, table, rng):
         "input_tokens": inp,
         "output_tokens": tot["output"],
         "cached_tokens": tot["cache_read"],
-        "cache_write_tokens": tot["cache_write"],
         "total_tokens": inp + tot["cache_write"] + tot["output"],
         "cache_hit": (tot["cache_read"] / inp) if inp else 0.0,
         "avg_latency_ms": (tot["latency_ms"] / tot["latency_n"]) if tot["latency_n"] else None,
@@ -344,7 +332,6 @@ def stats_for(usage, table, rng):
         "unpriced_requests": tot["unpriced"],
         "priced": bool(table),
         "models": [dict(r, cost=round(r["cost"], 2)) for r in rows],
-        "sources": len(sources),
         # Coverage starts when this consumer first drained the queue.
         "covered_since": first if now - first < span else None,
         "note": usage.get("backfill_note"),
@@ -353,7 +340,7 @@ def stats_for(usage, table, rng):
 
 # ----------------------------------------------------------------- quota
 
-def window(wid, label, used, resets_at_ts, period_s):
+def window(wid, label, used, resets_at_ts):
     used = None if used is None else max(0.0, min(100.0, float(used)))
     return {
         "id": wid,
@@ -361,24 +348,17 @@ def window(wid, label, used, resets_at_ts, period_s):
         "used_pct": used,
         "remaining_pct": None if used is None else round(100.0 - used, 1),
         "resets_at": resets_at_ts,
-        "period_s": period_s,
     }
 
 
 def claude_quota(body):
     wins = []
-    named = [
-        ("five_hour", "5h", 5 * 3600),
-        ("seven_day", "7d", 7 * 86400),
-        ("seven_day_oauth_apps", "7d apps", 7 * 86400),
-        ("seven_day_opus", "7d opus", 7 * 86400),
-        ("seven_day_sonnet", "7d sonnet", 7 * 86400),
-        ("seven_day_cowork", "7d cowork", 7 * 86400),
-    ]
-    for key, label, period in named:
+    named = [("five_hour", "5h"), ("seven_day", "7d"), ("seven_day_oauth_apps", "7d apps"),
+             ("seven_day_opus", "7d opus"), ("seven_day_sonnet", "7d sonnet"), ("seven_day_cowork", "7d cowork")]
+    for key, label in named:
         w = body.get(key)
         if isinstance(w, dict) and w.get("utilization") is not None:
-            wins.append(window(key, label, w.get("utilization"), parse_iso(w.get("resets_at")), period))
+            wins.append(window(key, label, w.get("utilization"), parse_iso(w.get("resets_at"))))
     # Model-scoped weekly limits (e.g. the Fable weekly cap) live in `limits[]`.
     for lim in body.get("limits") or []:
         if not isinstance(lim, dict) or lim.get("kind") != "weekly_scoped":
@@ -387,12 +367,8 @@ def claude_quota(body):
         if lim.get("percent") is None:
             continue
         wins.append(window("weekly_scoped:" + model.lower(), "7d " + model.lower(),
-                           lim.get("percent"), parse_iso(lim.get("resets_at")), 7 * 86400))
-    extra = body.get("extra_usage") or {}
-    plan = None
-    return {"windows": wins, "plan": plan,
-            "extra_usage": {"enabled": bool(extra.get("is_enabled")),
-                            "utilization": extra.get("utilization")} if extra else None}
+                           lim.get("percent"), parse_iso(lim.get("resets_at"))))
+    return {"windows": wins, "plan": None}
 
 
 def codex_label(seconds):
@@ -424,17 +400,14 @@ def codex_quota(body):
             resets = w.get("reset_at")
             if resets is None and w.get("reset_after_seconds") is not None:
                 resets = time.time() + float(w["reset_after_seconds"])
-            wins.append(window((prefix or "main") + ":" + slot, label, used,
-                               float(resets) if resets else None, period))
+            wins.append(window((prefix or "main") + ":" + slot, label, used, float(resets) if resets else None))
     add("", body.get("rate_limit"))
     add("review", body.get("code_review_rate_limit"))
     for extra in body.get("additional_rate_limits") or []:
         # "GPT-5.3-Codex-Spark" -> "spark": the last segment is the distinctive bit.
         name = (extra.get("limit_name") or "extra").split("-")[-1].lower()
         add(name[:8], extra.get("rate_limit"))
-    credits = body.get("rate_limit_reset_credits") or {}
-    return {"windows": wins, "plan": body.get("plan_type"),
-            "reset_credits": credits.get("available_count")}
+    return {"windows": wins, "plan": body.get("plan_type")}
 
 
 def xai_quota(body):
@@ -449,7 +422,7 @@ def xai_quota(body):
                 limit = v.get("limit") or v.get("total") or v.get("credits")
                 if used is not None and limit:
                     wins.append(window("xai:" + key, key, 100.0 * float(used) / float(limit),
-                                       parse_iso(v.get("reset_at") or v.get("resets_at")), None))
+                                       parse_iso(v.get("reset_at") or v.get("resets_at"))))
     return {"windows": wins, "plan": None}
 
 
@@ -503,22 +476,6 @@ def fetch_quota(client, acct, prev, quota_interval, force):
 
 # ----------------------------------------------------------------- main
 
-def load_prev():
-    try:
-        with open(SNAPSHOT) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
-
-
-def write_snapshot(snap):
-    os.makedirs(STATE_DIR, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=STATE_DIR, prefix=".snapshot.", suffix=".json")
-    with os.fdopen(fd, "w") as f:
-        json.dump(snap, f)
-    os.replace(tmp, SNAPSHOT)
-
-
 def main():
     settings = {}
     force = "--force" in sys.argv
@@ -531,16 +488,15 @@ def main():
     quota_interval = int(settings.get("quotaIntervalSec") or 900)
     host = settings.get("hostLabel") or base_url
 
-    prev = load_prev()
-    snap = {"generated_at": now_iso(), "generated_ts": time.time(), "host": host,
-            "base_url": base_url, "ok": False, "error": None,
-            "stats": prev.get("stats") or {}, "accounts": prev.get("accounts") or []}
+    prev = load_json(SNAPSHOT, {})
+    snap = {"generated_at": now_iso(), "generated_ts": time.time(), "host": host, "ok": False,
+            "error": None, "stats": prev.get("stats") or {}, "accounts": prev.get("accounts") or []}
     try:
         with open(key_file) as f:
             key = f.read().strip()
-    except OSError as e:
+    except OSError:
         snap["error"] = "no management key at %s — run omaquota-setup" % key_file
-        write_snapshot(snap)
+        save_json(SNAPSHOT, snap)
         return 1
     client = Client(base_url, key)
 
@@ -550,7 +506,7 @@ def main():
         snap["error"] = "proxy unreachable: %s" % e
         for a in snap["accounts"]:
             a["stale"] = True
-        write_snapshot(snap)
+        save_json(SNAPSHOT, snap)
         if do_print:
             print(json.dumps(snap, indent=1))
         return 1
@@ -573,25 +529,17 @@ def main():
     prev_q = {a["id"]: a.get("quota") for a in (prev.get("accounts") or []) if a.get("id")}
     accounts = []
     for f in files:
-        acct = {
+        accounts.append({
             "id": f.get("id") or f.get("name"),
             "auth_index": f.get("auth_index"),
             "provider": f.get("provider") or f.get("type") or "?",
             "email": f.get("email") or f.get("account") or f.get("label") or f.get("name"),
-            "label": f.get("label") or "",
             "status": f.get("status") or "",
-            "status_message": f.get("status_message") or "",
             "disabled": bool(f.get("disabled")),
             "unavailable": bool(f.get("unavailable")),
             "success": int(f.get("success") or 0),
             "failed": int(f.get("failed") or 0),
-            "recent": [
-                {"success": int(r.get("success") or 0), "failed": int(r.get("failed") or 0)}
-                for r in (f.get("recent_requests") or [])
-            ],
-            "last_refresh": f.get("last_refresh"),
-        }
-        accounts.append(acct)
+        })
 
     def work(acct):
         if acct["disabled"] or not acct["auth_index"]:
@@ -606,7 +554,7 @@ def main():
     accounts.sort(key=lambda a: (order.get(a["provider"], 9), a["email"].lower()))
     snap["accounts"] = accounts
     snap["ok"] = True
-    write_snapshot(snap)
+    save_json(SNAPSHOT, snap)
     if do_print:
         print(json.dumps(snap, indent=1))
     return 0
