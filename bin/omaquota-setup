@@ -56,3 +56,4 @@ omarchy plugin enable "$PLUGIN_ID" >/dev/null 2>&1 || true
 
 omarchy-shell "$PLUGIN_ID" refresh >/dev/null 2>&1 || true
 echo "✓ Omaquota configured — key in $KEY_FILE, settings on the bar entry in ~/.config/omarchy/shell.json"
+echo "  run: omarchy restart shell   (the widget reads its settings on creation)"

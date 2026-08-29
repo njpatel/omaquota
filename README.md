@@ -35,6 +35,9 @@ against the proxy, and writes:
   `config.yaml` may hold a bcrypt hash of it; that is not the key.
 - `baseUrl` / `hostLabel` on the widget's entry in `~/.config/omarchy/shell.json`.
 
+The widget reads its settings when it is created, so after setup (or any
+`omarchy bar set`) run `omarchy restart shell` to apply them.
+
 Requirements on the proxy: `remote-management.allow-remote: true` if it is not
 on localhost, and the `cap-token-usage-tracker` plugin for the stats block.
 Requirements here: `python3`, `curl`.
