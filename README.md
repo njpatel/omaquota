@@ -42,6 +42,8 @@ Click the icon.
 
 The icon turns urgent when a 5h or 7d window drops to 10%. The number beside it always covers the **last 24 hours**; choose what it shows with `r` in the panel or `barMetric`: `tokens` (new input + output, default), `tokens-split` (`↑new input ↓output`), `requests`, `cost`, or `none` - e.g. `omarchy bar set njpatel.omaquota barMetric cost`. The icon is `barIcon`: a name such as `gauge`, `speedometer`, `pulse`, `waveform`, `coins`, `usd`, `counter`, `chart`, `brain`, `robot`, `server` (full list in `manifest.json`), or any Nerd Font glyph.
 
+> **Status:** the token and cost accounting is still being verified against real traffic (a queue-retention bug that undercounted everything was only found on 30 Aug). Treat the usage figures as indicative until this note goes away; the quota panel is unaffected.
+
 ## Where the numbers come from
 
 - **Usage** is built from the proxy's own per-request records (`GET /v0/management/usage-queue`), folded into hourly buckets and kept for 7 days. Per request: uncached input, cache reads, cache writes and output (output includes reasoning tokens). The panel follows the `ccusage` / `claude /cost` convention: `input` is the uncached tokens, `cache rd` and `cache wr` are cache reads and writes, `total` is all four parts, and `hit rate` is reads ÷ (uncached + reads). The bar counts only uncached input (cache reads re-send the whole conversation every turn and would swamp it); hover the number for the cache figures.
