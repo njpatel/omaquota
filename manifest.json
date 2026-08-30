@@ -25,7 +25,7 @@
       "refreshIntervalSec": 300,
       "quotaIntervalSec": 900,
       "barMetric": "tokens",
-      "barIcon": "server-network"
+      "barIcon": "speedometer"
     },
     "schema": [
       { "key": "baseUrl", "type": "string", "label": "CLIProxyAPI base URL", "defaultValue": "http://127.0.0.1:8317" },
@@ -34,7 +34,7 @@
       { "key": "refreshIntervalSec", "type": "integer", "label": "Stats refresh (seconds)", "min": 60, "max": 3600, "step": 30, "defaultValue": 300 },
       { "key": "quotaIntervalSec", "type": "integer", "label": "Per-account quota refresh (seconds)", "min": 300, "max": 7200, "step": 60, "defaultValue": 900, "description": "Quota lookups hit each provider's own API through the proxy; keep this gentle or Anthropic rate-limits the account." },
       { "key": "barMetric", "type": "enum", "label": "Number shown in the bar (last 24h)", "options": ["tokens", "tokens-split", "requests", "cost", "none"], "defaultValue": "tokens", "description": "tokens = in+out; tokens-split = ↑in ↓out; requests; cost = estimated spend; none = icon only." },
-      { "key": "barIcon", "type": "string", "label": "Bar icon", "defaultValue": "server-network", "description": "A name (server-network, server, lan, network, gauge, gauge-fa, speedometer, meter, pulse, waveform, signal, chart, chart-line, trending, counter, abacus, coins, cash, usd, fuel, brain, robot, chip, flash, timer) or any Nerd Font glyph." }
+      { "key": "barIcon", "type": "string", "label": "Bar icon", "defaultValue": "speedometer", "description": "A name (server-network, server, lan, network, gauge, gauge-fa, speedometer, meter, pulse, waveform, signal, chart, chart-line, trending, counter, abacus, coins, cash, usd, fuel, brain, robot, chip, flash, timer) or any Nerd Font glyph." }
     ]
   }
 }

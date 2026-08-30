@@ -40,7 +40,7 @@ Panel {
     "coins": "\u{ede8}", "cash": "\u{f0114}", "usd": "\u{f01c1}", "fuel": "\u{f07ca}",
     "brain": "\u{f09d1}", "robot": "\u{f06a9}", "chip": "\u{f061a}", "flash": "\u{f0241}", "timer": "\u{f13ab}"
   })
-  property string barIconName: String(setting("barIcon", "server-network"))
+  property string barIconName: String(setting("barIcon", "speedometer"))
   readonly property string barIcon: barIcons[barIconName] !== undefined ? barIcons[barIconName] : barIconName
   function cycleBarIcon() {
     var names = Object.keys(barIcons), i = names.indexOf(barIconName)
