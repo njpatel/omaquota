@@ -26,6 +26,8 @@ omarchy restart shell
 
 Setup asks for the proxy URL and its management key (the plaintext one, not the hash in `config.yaml`). Usage starts counting from then: the 24h and 7d views are rolling windows that fill in as data arrives (the panel says so until they are full). The proxy needs `remote-management.allow-remote` if it is not on localhost and `usage-statistics-enabled` for the stats block. Omaquota consumes the proxy's usage queue, so run only one consumer. The proxy drops queued records older than `redis-usage-queue-retention-seconds` (default **60**, max 3600) - set it to 3600 in the proxy's config.yaml, otherwise anything between two refreshes is lost and every number is an undercount; the cost line is an estimate at [models.dev](https://models.dev) list prices. If the `cap-token-usage-tracker` plugin is installed, history from before Omaquota is seeded from it once.
 
+Remove with `omarchy plugin remove njpatel.omaquota`, then delete `~/.config/omaquota/` (the key) and `~/.local/state/omarchy/omaquota/` (usage history). Needs `python3` and `curl`; nothing else.
+
 ## Use
 
 Click the icon.
