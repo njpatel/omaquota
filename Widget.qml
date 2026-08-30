@@ -171,6 +171,10 @@ Panel {
     function scrub(): string { root.scrub = !root.scrub; return root.scrub ? "scrubbed" : "clear" }
     function expand(): string { root.expanded = !root.expanded; return root.expanded ? "expanded" : "aggregated" }
     function range(): string { root.toggleRange(); return root.range }
+    // Card rectangle in logical monitor coordinates (used for screenshots).
+    function geometry(): string {
+      return JSON.stringify({ x: panel.cardOrigin.x, y: panel.cardOrigin.y, w: panel.contentWidth, h: panel.contentHeight })
+    }
   }
 
   // ---------------------------------------------------------------- formatting
@@ -382,7 +386,7 @@ Panel {
       out += blank()
     }
 
-    var foot = "updated " + gen + (fetching ? " · fetching…" : "") + "  t e h · r bar: " + barMetric + " · i icon: " + barIconName + (scrub ? " · scrubbed" : "")
+    var foot = gen + (fetching ? " · fetching…" : "") + " · bar " + barMetric + " · icon " + barIconName + (scrub ? " · hidden" : "")
     out += rule("", false, false)
     out += line(cell(foot, inner, fg))
     out += rule("", false, true)
