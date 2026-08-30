@@ -6,6 +6,7 @@
   "author": "Neil Patel",
   "license": "Apache-2.0",
   "description": "TUI-style dashboard for a remote CLIProxyAPI: proxy-wide usage stats and the remaining quota of every subscription behind it.",
+  "preview": "assets/omaquota.png",
   "kinds": [
     "bar-widget"
   ],
