@@ -23,12 +23,26 @@ Panel {
   readonly property int refreshIntervalSec: Math.max(60, Number(setting("refreshIntervalSec", 300)))
   readonly property int quotaIntervalSec: Math.max(120, Number(setting("quotaIntervalSec", 900)))
   property string barMetric: String(setting("barMetric", "tokens"))
-  readonly property var barMetrics: ["tokens", "tokens-split", "requests", "cost", "lowest", "none"]
+  readonly property var barMetrics: ["tokens", "tokens-split", "requests", "cost", "none"]
   function cycleBarMetric() {
     var i = barMetrics.indexOf(barMetric)
     barMetric = barMetrics[(i + 1) % barMetrics.length]
     // Persist on the bar entry so the choice survives a shell restart.
     Quickshell.execDetached(["omarchy", "bar", "set", "njpatel.omaquota", "barMetric", barMetric])
+  }
+
+  // Bar icon: a name from `barIcons` or any raw glyph. Nerd Font codepoints.
+  readonly property var barIcons: ({
+    "server-network": "\u{f048d}", "server": "\u{f048b}", "lan": "\u{f0317}", "network": "\u{f06f3}",
+    "gauge": "\u{f029a}", "gauge-fa": "\u{eeb2}", "speedometer": "\u{f04c5}", "meter": "\u{f463}",
+    "pulse": "\u{f0430}", "waveform": "\u{f147d}", "signal": "\u{f04a2}", "chart": "\u{f0128}",
+    "chart-line": "\u{f012a}", "trending": "\u{f0535}", "counter": "\u{f0199}", "abacus": "\u{f16e0}",
+    "coins": "\u{ede8}", "cash": "\u{f0114}", "usd": "\u{f01c1}", "fuel": "\u{f07ca}",
+    "brain": "\u{f09d1}", "robot": "\u{f06a9}", "chip": "\u{f061a}", "flash": "\u{f0241}", "timer": "\u{f13ab}"
+  })
+  readonly property string barIcon: {
+    var v = String(setting("barIcon", "server-network"))
+    return barIcons[v] !== undefined ? barIcons[v] : v
   }
 
   readonly property string snapshotPath: Quickshell.env("HOME") + "/.local/state/omarchy/omaquota/snapshot.json"
@@ -444,7 +458,6 @@ Panel {
   readonly property string barText: {
     if (!snapshot || barMetric === "none") return ""
     if (!online) return "off"
-    if (barMetric === "lowest") return (lowestRemaining > 100 ? "—" : Math.round(lowestRemaining) + "%") + " left"
     var st = stats24
     if (!st) return ""
     if (barMetric === "requests") return fmtNum(st.requests)
@@ -469,7 +482,7 @@ Panel {
     BarIconButton {
       id: button
       bar: root.bar
-      text: "󰒍"
+      text: root.barIcon
       active: root.alarming
       onPressed: function(buttonCode) { root.barPressed(buttonCode) }
     }
