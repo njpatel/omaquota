@@ -20,7 +20,7 @@ Panel {
   readonly property string baseUrl: String(setting("baseUrl", "http://127.0.0.1:8317"))
   readonly property string hostLabel: String(setting("hostLabel", "cliproxyapi"))
   readonly property string keyFile: String(setting("keyFile", "~/.config/omaquota/management-key"))
-  readonly property int refreshIntervalSec: Math.max(60, Number(setting("refreshIntervalSec", 300)))
+  readonly property int refreshIntervalSec: Math.max(30, Number(setting("refreshIntervalSec", 60)))
   readonly property int quotaIntervalSec: Math.max(120, Number(setting("quotaIntervalSec", 900)))
   property string barMetric: String(setting("barMetric", "tokens"))
   readonly property var barMetrics: ["tokens", "tokens-split", "requests", "cost", "none"]

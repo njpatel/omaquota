@@ -28,7 +28,7 @@
       "baseUrl": "http://127.0.0.1:8317",
       "hostLabel": "cliproxyapi",
       "keyFile": "~/.config/omaquota/management-key",
-      "refreshIntervalSec": 300,
+      "refreshIntervalSec": 60,
       "quotaIntervalSec": 900,
       "barMetric": "tokens",
       "barIcon": "speedometer"
@@ -55,11 +55,12 @@
       {
         "key": "refreshIntervalSec",
         "type": "integer",
-        "label": "Stats refresh (seconds)",
-        "min": 60,
+        "label": "Usage refresh (seconds)",
+        "min": 30,
         "max": 3600,
         "step": 30,
-        "defaultValue": 300
+        "defaultValue": 60,
+        "description": "How often the proxy's usage queue is drained. The proxy discards queued records older than its redis-usage-queue-retention-seconds (default 60, max 3600), so this must be shorter than that or records are lost."
       },
       {
         "key": "quotaIntervalSec",
