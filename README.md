@@ -33,11 +33,12 @@ Click the icon.
 |---|---|
 | `e` | aggregate per provider / every account |
 | `t` | 24h / 7d |
-| `x` | redact account names |
-| `r` | refresh |
+| `h` | redact account names |
+| `r` | cycle what the bar shows |
+| `Enter` | refresh |
 | `j` `k` | scroll |
 
-The icon turns urgent when a 5h or 7d window drops to 10%. The number beside it always covers the **last 24 hours**; choose what it shows with `barMetric`: `tokens` (in+out, default), `tokens-split` (`↑in ↓out`), `requests`, `cost`, `lowest` remaining quota, or `none` — e.g. `omarchy bar set njpatel.omaquota barMetric cost`.
+The icon turns urgent when a 5h or 7d window drops to 10%. The number beside it always covers the **last 24 hours**; choose what it shows with `r` in the panel or `barMetric`: `tokens` (in+out, default), `tokens-split` (`↑in ↓out`), `requests`, `cost`, `lowest` remaining quota, or `none` — e.g. `omarchy bar set njpatel.omaquota barMetric cost`.
 
 ## License
 

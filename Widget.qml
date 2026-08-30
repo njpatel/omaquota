@@ -7,7 +7,8 @@ import qs.Ui
 
 // Omaquota: a bar icon and a TUI-style panel for a CLIProxyAPI instance.
 // bin/omaquota-fetch writes ~/.local/state/omarchy/omaquota/snapshot.json;
-// this file only renders it.
+// this file only renders it. Keys: j/k scroll · t 24h/7d · e aggregate ·
+// h redact names · r cycle the bar metric · Enter refresh · Esc close.
 
 Panel {
   id: root
@@ -21,7 +22,14 @@ Panel {
   readonly property string keyFile: String(setting("keyFile", "~/.config/omaquota/management-key"))
   readonly property int refreshIntervalSec: Math.max(60, Number(setting("refreshIntervalSec", 300)))
   readonly property int quotaIntervalSec: Math.max(120, Number(setting("quotaIntervalSec", 900)))
-  readonly property string barMetric: String(setting("barMetric", "tokens"))
+  property string barMetric: String(setting("barMetric", "tokens"))
+  readonly property var barMetrics: ["tokens", "tokens-split", "requests", "cost", "lowest", "none"]
+  function cycleBarMetric() {
+    var i = barMetrics.indexOf(barMetric)
+    barMetric = barMetrics[(i + 1) % barMetrics.length]
+    // Persist on the bar entry so the choice survives a shell restart.
+    Quickshell.execDetached(["omarchy", "bar", "set", "njpatel.omaquota", "barMetric", barMetric])
+  }
 
   readonly property string snapshotPath: Quickshell.env("HOME") + "/.local/state/omarchy/omaquota/snapshot.json"
   readonly property string fetcher: Qt.resolvedUrl("bin/omaquota-fetch").toString().replace(/^file:\/\//, "")
@@ -42,7 +50,7 @@ Panel {
   // ---------------------------------------------------------------- state
   property var snapshot: null
   property string range: "24h"
-  property bool scrub: false      // x/h: redact account names
+  property bool scrub: false      // h: redact account names
   property bool expanded: true    // e: every account vs one block per provider
   property double nowMs: Date.now()
   readonly property bool fetching: fetchProcess.running
@@ -357,7 +365,7 @@ Panel {
       out += blank()
     }
 
-    var foot = "updated " + gen + (fetching ? " · fetching…" : "") + "  j/k r t e x/h" + (scrub ? " · scrubbed" : "")
+    var foot = "updated " + gen + (fetching ? " · fetching…" : "") + "  j/k · t range · e · h hide · r bar: " + barMetric + (scrub ? " · scrubbed" : "")
     out += rule("", false, false)
     out += line(cell(foot, inner, fg))
     out += rule("", false, true)
@@ -518,18 +526,17 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
 
-      // The catcher maps j/k to vertical moves, h/l to horizontal ones and x
-      // to deleteRequested before textKey sees them.
+      // The catcher maps j/k to vertical moves and h/l to horizontal ones
+      // before textKey sees them; h (dx < 0) toggles redaction.
       onMoveRequested: function(dx, dy) {
         if (dx < 0) root.scrub = !root.scrub
         if (dy !== 0) root.scrollBy(dy)
       }
-      onDeleteRequested: root.scrub = !root.scrub
       onActivateRequested: root.refresh(true)
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onTextKey: function(t) {
-        if (t === "r" || t === "R") root.refresh(true)
+        if (t === "r" || t === "R") root.cycleBarMetric()
         else if (t === "t" || t === "T") root.toggleRange()
         else if (t === "e" || t === "E") root.expanded = !root.expanded
       }
