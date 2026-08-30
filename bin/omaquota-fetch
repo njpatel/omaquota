@@ -166,6 +166,9 @@ def drain_queue(client, usage):
         batch = client.get("/v0/management/usage-queue?count=500") or []
         if not isinstance(batch, list) or not batch:
             break
+        # Keep a few raw records around: token accounting is easy to get subtly wrong.
+        recent = usage.setdefault("recent_records", [])
+        recent.extend(batch[-20:]); del recent[:-20]
         for rec in batch:
             ts = parse_iso(rec.get("timestamp")) or time.time()
             hour = int(ts // 3600) * 3600
