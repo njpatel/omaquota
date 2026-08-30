@@ -57,3 +57,8 @@ omarchy plugin enable "$PLUGIN_ID" >/dev/null 2>&1 || true
 omarchy-shell "$PLUGIN_ID" refresh >/dev/null 2>&1 || true
 echo "✓ Omaquota configured - key in $KEY_FILE, settings on the bar entry in ~/.config/omarchy/shell.json"
 echo "  run: omarchy restart shell   (the widget reads its settings on creation)"
+echo
+echo "Two things to know:"
+echo "  - Usage starts counting from now: the 24h and 7d views are rolling windows and fill in as data arrives."
+echo "  - The proxy discards queued usage older than redis-usage-queue-retention-seconds (default 60)."
+echo "    Set it to 3600 in the proxy's config.yaml (it hot-reloads) so nothing is lost between refreshes."

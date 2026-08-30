@@ -352,6 +352,10 @@ Panel {
                         kv("in+out", fmtUsd((st.cost_in_usd || 0) + (st.cost_out_usd || 0)))))
       }
       out += line(cat(kv("latency", fmtMs(st.avg_latency_ms)), kv("ttft", fmtMs(st.avg_ttft_ms))))
+      if (st.covered_since) {
+        var span = range === "7d" ? 604800 : 86400, left = span - (nowMs / 1000 - st.covered_since)
+        out += line(cell("collecting since " + fmtClock(st.covered_since) + " · the " + range + " view fills in over the next " + fmtDuration(left), inner, faint))
+      }
       if (st.note) out += line(cell(st.note, inner, faint))
       if (st.unpriced_requests > 0) out += line(cell(fmtInt(st.unpriced_requests) + " requests on models without a list price", inner, faint))
       out += blank()
@@ -473,7 +477,7 @@ Panel {
   }
   readonly property string barText: {
     if (!snapshot || barMetric === "none") return ""
-    if (!online) return "off"
+    if (!online) return snapshot.error && String(snapshot.error).indexOf("omaquota-setup") >= 0 ? "setup" : "off"
     var st = stats24
     if (!st) return ""
     if (barMetric === "requests") return fmtNum(st.requests)
