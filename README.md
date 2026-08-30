@@ -35,6 +35,7 @@ Click the icon.
 | `t` | 24h / 7d |
 | `h` | redact account names |
 | `r` | cycle what the bar shows |
+| `i` | cycle the bar icon |
 | `Enter` | refresh |
 | `j` `k` | scroll |
 

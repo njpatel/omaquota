@@ -8,7 +8,7 @@ import qs.Ui
 // Omaquota: a bar icon and a TUI-style panel for a CLIProxyAPI instance.
 // bin/omaquota-fetch writes ~/.local/state/omarchy/omaquota/snapshot.json;
 // this file only renders it. Keys: j/k scroll · t 24h/7d · e aggregate ·
-// h redact names · r cycle the bar metric · Enter refresh · Esc close.
+// h redact names · r cycle the bar metric · i cycle the bar icon · Enter refresh · Esc close.
 
 Panel {
   id: root
@@ -40,9 +40,12 @@ Panel {
     "coins": "\u{ede8}", "cash": "\u{f0114}", "usd": "\u{f01c1}", "fuel": "\u{f07ca}",
     "brain": "\u{f09d1}", "robot": "\u{f06a9}", "chip": "\u{f061a}", "flash": "\u{f0241}", "timer": "\u{f13ab}"
   })
-  readonly property string barIcon: {
-    var v = String(setting("barIcon", "server-network"))
-    return barIcons[v] !== undefined ? barIcons[v] : v
+  property string barIconName: String(setting("barIcon", "server-network"))
+  readonly property string barIcon: barIcons[barIconName] !== undefined ? barIcons[barIconName] : barIconName
+  function cycleBarIcon() {
+    var names = Object.keys(barIcons), i = names.indexOf(barIconName)
+    barIconName = names[(i + 1) % names.length]
+    Quickshell.execDetached(["omarchy", "bar", "set", "njpatel.omaquota", "barIcon", barIconName])
   }
 
   readonly property string snapshotPath: Quickshell.env("HOME") + "/.local/state/omarchy/omaquota/snapshot.json"
@@ -379,7 +382,7 @@ Panel {
       out += blank()
     }
 
-    var foot = "updated " + gen + (fetching ? " · fetching…" : "") + "  j/k · t range · e · h hide · r bar: " + barMetric + (scrub ? " · scrubbed" : "")
+    var foot = "updated " + gen + (fetching ? " · fetching…" : "") + "  t e h · r bar: " + barMetric + " · i icon: " + barIconName + (scrub ? " · scrubbed" : "")
     out += rule("", false, false)
     out += line(cell(foot, inner, fg))
     out += rule("", false, true)
@@ -552,6 +555,7 @@ Panel {
         if (t === "r" || t === "R") root.cycleBarMetric()
         else if (t === "t" || t === "T") root.toggleRange()
         else if (t === "e" || t === "E") root.expanded = !root.expanded
+        else if (t === "i" || t === "I") root.cycleBarIcon()
       }
 
       Flickable {
