@@ -339,9 +339,13 @@ Panel {
       out += line(cat(kv("requests", fmtInt(st.requests)),
                       kv("failed", fmtInt(st.failed), st.failed > 0 ? accent : fg),
                       kv("rate", failPct.toFixed(1) + "%", failPct >= 5 ? urgent : fg)))
-      out += line(cat(kv("input", fmtNum(st.input_tokens)),
+      var fresh = st.uncached_tokens !== undefined ? st.uncached_tokens : Math.max(0, (st.input_tokens || 0) - (st.cached_tokens || 0))
+      out += line(cat(kv("input", fmtNum(fresh)),
                       kv("output", fmtNum(st.output_tokens)),
-                      kv("cached", Math.round(100 * (st.cache_hit || 0)) + "%")))
+                      kv("total", fmtNum(st.total_tokens))))
+      out += line(cat(kv("cache rd", fmtNum(st.cached_tokens)),
+                      kv("cache wr", st.cache_write_tokens !== undefined ? fmtNum(st.cache_write_tokens) : "-"),
+                      kv("hit rate", Math.round(100 * (st.cache_hit || 0)) + "%")))
       if (st.priced && st.requests > 0) {
         out += line(cat(kv("est cost", fmtUsd(st.cost_usd)),
                         kv("cache", fmtUsd(st.cost_cache_usd)),
@@ -464,7 +468,9 @@ Panel {
   // here is what was actually sent fresh; cache reads re-send the whole
   // conversation every turn and would swamp the number, so they live in the tooltip.
   readonly property var stats24: snapshot && snapshot.stats ? (snapshot.stats["24h"] || null) : null
-  function freshInput(st) { return Math.max(0, (st.input_tokens || 0) - (st.cached_tokens || 0)) }
+  function freshInput(st) {
+    return st.uncached_tokens !== undefined ? st.uncached_tokens : Math.max(0, (st.input_tokens || 0) - (st.cached_tokens || 0))
+  }
   readonly property string barText: {
     if (!snapshot || barMetric === "none") return ""
     if (!online) return "off"
@@ -479,7 +485,7 @@ Panel {
     var st = stats24
     if (!st) return "Omaquota"
     return "Last 24h: " + fmtInt(st.requests) + " requests · ↑" + fmtNum(freshInput(st)) + " new input + " + fmtNum(st.cached_tokens)
-      + " from cache · ↓" + fmtNum(st.output_tokens) + " output" + (st.priced ? " · est " + fmtUsd(st.cost_usd) : "")
+      + " cache read (" + Math.round(100 * (st.cache_hit || 0)) + "% hit) · ↓" + fmtNum(st.output_tokens) + " output" + (st.priced ? " · est " + fmtUsd(st.cost_usd) : "")
   }
 
   implicitWidth: row.implicitWidth

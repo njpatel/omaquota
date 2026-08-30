@@ -319,7 +319,9 @@ def stats_for(usage, table, rng):
         "range": rng,
         "requests": tot["requests"],
         "failed": tot["failed"],
-        "input_tokens": inp,
+        "input_tokens": inp,                     # uncached + cache reads (everything the model read)
+        "uncached_tokens": tot["uncached"],
+        "cache_write_tokens": tot["cache_write"],
         "output_tokens": tot["output"],
         "cached_tokens": tot["cache_read"],
         "total_tokens": inp + tot["cache_write"] + tot["output"],
