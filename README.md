@@ -40,11 +40,11 @@ Click the icon.
 | `Enter` | refresh |
 | `j` `k` | scroll |
 
-The icon turns urgent when a 5h or 7d window drops to 10%. The number beside it always covers the **last 24 hours**; choose what it shows with `r` in the panel or `barMetric`: `tokens` (in+out, default), `tokens-split` (`↑in ↓out`), `requests`, `cost`, or `none` - e.g. `omarchy bar set njpatel.omaquota barMetric cost`. The icon is `barIcon`: a name such as `gauge`, `speedometer`, `pulse`, `waveform`, `coins`, `usd`, `counter`, `chart`, `brain`, `robot`, `server` (full list in `manifest.json`), or any Nerd Font glyph.
+The icon turns urgent when a 5h or 7d window drops to 10%. The number beside it always covers the **last 24 hours**; choose what it shows with `r` in the panel or `barMetric`: `tokens` (new input + output, default), `tokens-split` (`↑new input ↓output`), `requests`, `cost`, or `none` - e.g. `omarchy bar set njpatel.omaquota barMetric cost`. The icon is `barIcon`: a name such as `gauge`, `speedometer`, `pulse`, `waveform`, `coins`, `usd`, `counter`, `chart`, `brain`, `robot`, `server` (full list in `manifest.json`), or any Nerd Font glyph.
 
 ## Where the numbers come from
 
-- **Usage** is built from the proxy's own per-request records (`GET /v0/management/usage-queue`), folded into hourly buckets and kept for 7 days. Per request: uncached input, cache reads, cache writes and output (output includes reasoning tokens). `input` in the panel is uncached + cache reads; `cached %` is cache reads ÷ input.
+- **Usage** is built from the proxy's own per-request records (`GET /v0/management/usage-queue`), folded into hourly buckets and kept for 7 days. Per request: uncached input, cache reads, cache writes and output (output includes reasoning tokens). `input` in the panel is uncached + cache reads; `cached %` is cache reads ÷ input. The bar counts only uncached input (cache reads re-send the whole conversation every turn and would swamp it); hover the number for the cached total.
 - **Cost** prices those four parts separately at [models.dev](https://models.dev) list rates for the model, refreshed daily. It is an estimate: context-tier and service-tier surcharges are ignored.
 - **Quota** is what each provider reports for the account (Anthropic `oauth/usage`, ChatGPT `wham/usage`, grok billing), fetched through the proxy's `api-call` passthrough, no more often than `quotaIntervalSec`.
 

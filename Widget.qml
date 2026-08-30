@@ -460,8 +460,11 @@ Panel {
   }
 
   // ---------------------------------------------------------------- bar
-  // Bar label: always the last 24h (documented; the tooltip says so).
+  // Bar label: always the last 24h (documented; the tooltip says so). Input
+  // here is what was actually sent fresh; cache reads re-send the whole
+  // conversation every turn and would swamp the number, so they live in the tooltip.
   readonly property var stats24: snapshot && snapshot.stats ? (snapshot.stats["24h"] || null) : null
+  function freshInput(st) { return Math.max(0, (st.input_tokens || 0) - (st.cached_tokens || 0)) }
   readonly property string barText: {
     if (!snapshot || barMetric === "none") return ""
     if (!online) return "off"
@@ -469,14 +472,14 @@ Panel {
     if (!st) return ""
     if (barMetric === "requests") return fmtNum(st.requests)
     if (barMetric === "cost") return st.priced ? fmtUsd(st.cost_usd) : "-"
-    if (barMetric === "tokens-split") return "↑" + fmtNum(st.input_tokens) + " ↓" + fmtNum(st.output_tokens)
-    return fmtNum(st.total_tokens)
+    if (barMetric === "tokens-split") return "↑" + fmtNum(freshInput(st)) + " ↓" + fmtNum(st.output_tokens)
+    return fmtNum(freshInput(st) + (st.output_tokens || 0))
   }
   readonly property string barTooltip: {
     var st = stats24
     if (!st) return "Omaquota"
-    return "Last 24h: " + fmtInt(st.requests) + " requests · " + fmtNum(st.total_tokens) + " tokens (↑" + fmtNum(st.input_tokens)
-      + " in, ↓" + fmtNum(st.output_tokens) + " out)" + (st.priced ? " · est " + fmtUsd(st.cost_usd) : "")
+    return "Last 24h: " + fmtInt(st.requests) + " requests · ↑" + fmtNum(freshInput(st)) + " new input + " + fmtNum(st.cached_tokens)
+      + " from cache · ↓" + fmtNum(st.output_tokens) + " output" + (st.priced ? " · est " + fmtUsd(st.cost_usd) : "")
   }
 
   implicitWidth: row.implicitWidth
