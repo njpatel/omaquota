@@ -373,7 +373,7 @@ Panel {
       out += line(cat(kv("latency", fmtMs(st.avg_latency_ms)), kv("ttft", fmtMs(st.avg_ttft_ms))))
       if (st.covered_since) {
         var span = range === "7d" ? 604800 : 86400, left = span - (nowMs / 1000 - st.covered_since)
-        out += line(cell("collecting since " + fmtClock(st.covered_since) + " · the " + range + " view fills in over the next " + fmtDuration(left), inner, warn))
+        out += line(cell("partial: counting since " + fmtClock(st.covered_since) + " · complete in " + fmtDuration(left), inner, warn))
       }
       if (st.note) out += line(cell(st.note, inner, warn))
       if (st.unpriced_requests > 0) out += line(cell(fmtInt(st.unpriced_requests) + " requests on models without a list price", inner, faint))

@@ -340,7 +340,7 @@ def stats_for(usage, table, rng):
         "models": [dict(r, cost=round(r["cost"], 2)) for r in rows],
         # Coverage starts when this consumer first drained the queue.
         "covered_since": first if now - first < span else None,
-        "note": ("before %s imported from the usage-tracker plugin (approx)" % time.strftime("%d %b %H:%M", time.localtime(usage["backfill_until"])))
+        "note": ("figures before %s are estimates" % time.strftime("%d %b %H:%M", time.localtime(usage["backfill_until"])))
                 if usage.get("backfill_until") else None,
     }
 
