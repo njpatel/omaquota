@@ -431,7 +431,7 @@ Panel {
   }
 
   // ---------------------------------------------------------------- bar
-  // Bar label: always the last 24h, and says so.
+  // Bar label: always the last 24h (documented; the tooltip says so).
   readonly property var stats24: snapshot && snapshot.stats ? (snapshot.stats["24h"] || null) : null
   readonly property string barText: {
     if (!snapshot || barMetric === "none") return ""
@@ -439,10 +439,10 @@ Panel {
     if (barMetric === "lowest") return (lowestRemaining > 100 ? "—" : Math.round(lowestRemaining) + "%") + " left"
     var st = stats24
     if (!st) return ""
-    if (barMetric === "requests") return fmtNum(st.requests) + "/24h"
-    if (barMetric === "cost") return (st.priced ? fmtUsd(st.cost_usd) : "—") + "/24h"
-    if (barMetric === "tokens-split") return "↑" + fmtNum(st.input_tokens) + " ↓" + fmtNum(st.output_tokens) + " /24h"
-    return fmtNum(st.total_tokens) + "/24h"
+    if (barMetric === "requests") return fmtNum(st.requests)
+    if (barMetric === "cost") return st.priced ? fmtUsd(st.cost_usd) : "—"
+    if (barMetric === "tokens-split") return "↑" + fmtNum(st.input_tokens) + " ↓" + fmtNum(st.output_tokens)
+    return fmtNum(st.total_tokens)
   }
   readonly property string barTooltip: {
     var st = stats24
