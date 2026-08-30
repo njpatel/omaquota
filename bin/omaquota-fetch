@@ -239,7 +239,7 @@ def backfill_from_tracker(client, usage):
         b["ttft_n"] += int(row.get("ttft_samples") or 0)
         added += 1
     if added:
-        usage["backfill_note"] = "seeded from tracker before %s" % time.strftime("%d %b %H:%M")
+        usage["backfill_until"] = time.time()
         usage["first_seen"] = min(first, min(int(k.split("|", 1)[0]) for k in buckets))
     return added
 
@@ -340,7 +340,8 @@ def stats_for(usage, table, rng):
         "models": [dict(r, cost=round(r["cost"], 2)) for r in rows],
         # Coverage starts when this consumer first drained the queue.
         "covered_since": first if now - first < span else None,
-        "note": usage.get("backfill_note"),
+        "note": ("before %s imported from the usage-tracker plugin (approx)" % time.strftime("%d %b %H:%M", time.localtime(usage["backfill_until"])))
+                if usage.get("backfill_until") else None,
     }
 
 

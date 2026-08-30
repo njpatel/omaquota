@@ -64,6 +64,25 @@ Panel {
   readonly property color faint: Qt.rgba(fg.r, fg.g, fg.b, 0.22)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
+  // Notes that mean "these numbers are partial or approximate" use the theme's yellow.
+  property var palette: ({})
+  readonly property color warn: palette.bright_yellow || palette.yellow || accent
+  FileView {
+    path: Quickshell.env("HOME") + "/.local/state/omarchy/current/theme/colors.toml"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.parsePalette(text())
+  }
+  function parsePalette(content) {
+    var out = ({}), lines = String(content || "").split("\n")
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(/^\s*([a-z_]+)\s*=\s*"(#[0-9a-fA-F]{6,8})"/)
+      if (m) out[m[1]] = m[2]
+    }
+    root.palette = out
+  }
+
   // ---------------------------------------------------------------- state
   property var snapshot: null
   property string range: "24h"
@@ -354,9 +373,9 @@ Panel {
       out += line(cat(kv("latency", fmtMs(st.avg_latency_ms)), kv("ttft", fmtMs(st.avg_ttft_ms))))
       if (st.covered_since) {
         var span = range === "7d" ? 604800 : 86400, left = span - (nowMs / 1000 - st.covered_since)
-        out += line(cell("collecting since " + fmtClock(st.covered_since) + " · the " + range + " view fills in over the next " + fmtDuration(left), inner, faint))
+        out += line(cell("collecting since " + fmtClock(st.covered_since) + " · the " + range + " view fills in over the next " + fmtDuration(left), inner, warn))
       }
-      if (st.note) out += line(cell(st.note, inner, faint))
+      if (st.note) out += line(cell(st.note, inner, warn))
       if (st.unpriced_requests > 0) out += line(cell(fmtInt(st.unpriced_requests) + " requests on models without a list price", inner, faint))
       out += blank()
 
