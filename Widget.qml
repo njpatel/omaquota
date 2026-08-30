@@ -196,7 +196,7 @@ Panel {
     return "$" + v.toFixed(2)
   }
   function fmtMs(ms) {
-    if (ms === null || ms === undefined) return "—"
+    if (ms === null || ms === undefined) return "-"
     ms = Number(ms)
     return ms >= 1000 ? (ms / 1000).toFixed(1) + "s" : Math.round(ms) + "ms"
   }
@@ -321,7 +321,7 @@ Panel {
     out += rule("CLIPROXYAPI @ " + hostLabel, true, false)
 
     if (!snap) {
-      out += line(cell("no snapshot yet — fetching…", inner, dim))
+      out += line(cell("no snapshot yet - fetching…", inner, dim))
       return out + rule("", false, true)
     }
     if (!snap.ok) {
@@ -361,7 +361,7 @@ Panel {
       if (models.length === 0) out += line(cell("no traffic in this range", inner, dim))
       for (var m = 0; m < models.length; m++) {
         var md = models[m]
-        var cost = st.priced ? (md.priced === false ? "—" : fmtUsd(md.cost)) : ""
+        var cost = st.priced ? (md.priced === false ? "-" : fmtUsd(md.cost)) : ""
         out += line(cat(cell(modelName(md.model), 20, fg), gap(1), share(md.requests, maxReq, 10), gap(1),
                         cell(fmtInt(md.requests), 7, fg, true), gap(1), cell(fmtNum(md.total_tokens), 8, dim, true), gap(1),
                         cell(cost, 8, fg, true)))
@@ -372,7 +372,7 @@ Panel {
     out += blank()
 
     // Subscriptions, grouped by provider in snapshot order
-    var lowestText = lowestRemaining > 100 ? "—" : Math.round(lowestRemaining) + "% left"
+    var lowestText = lowestRemaining > 100 ? "-" : Math.round(lowestRemaining) + "% left"
     out += rule("SUBSCRIPTIONS " + accounts.length + " · lowest " + lowestText + (expanded ? "" : " · aggregated"), false, false)
     var groups = [], byProvider = ({})
     for (var a = 0; a < accounts.length; a++) {
@@ -407,7 +407,7 @@ Panel {
         var win = wins[w]
         var known = win.remaining_pct !== null && win.remaining_pct !== undefined
         out += windowRow(win.label, win.remaining_pct,
-                         known ? Math.round(win.remaining_pct) + "% left" : "—", known && win.remaining_pct <= 10 ? urgent : fg,
+                         known ? Math.round(win.remaining_pct) + "% left" : "-", known && win.remaining_pct <= 10 ? urgent : fg,
                          win.resets_at ? "resets " + fmtDuration(win.resets_at - nowMs / 1000) : "", q.stale ? faint : dim)
       }
       if (wins.length > 0 && (q.stale || q.error)) {
@@ -468,7 +468,7 @@ Panel {
     var st = stats24
     if (!st) return ""
     if (barMetric === "requests") return fmtNum(st.requests)
-    if (barMetric === "cost") return st.priced ? fmtUsd(st.cost_usd) : "—"
+    if (barMetric === "cost") return st.priced ? fmtUsd(st.cost_usd) : "-"
     if (barMetric === "tokens-split") return "↑" + fmtNum(st.input_tokens) + " ↓" + fmtNum(st.output_tokens)
     return fmtNum(st.total_tokens)
   }

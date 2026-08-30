@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# omaquota-setup — point the widget at a CLIProxyAPI instance.
+# omaquota-setup - point the widget at a CLIProxyAPI instance.
 #
 #   omaquota-setup                      interactive
 #   omaquota-setup <base-url> [label]   non-interactive; the key is read from
@@ -45,9 +45,9 @@ code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $key" \
   "${base_url%/}/v0/management/usage-statistics-enabled" || true)"
 case "$code" in
   200) echo "✓ management API reachable at $base_url" ;;
-  401) echo "✗ $base_url rejected the key (401). Repeated failures get your IP banned for 30 minutes — double-check it." >&2; exit 1 ;;
+  401) echo "✗ $base_url rejected the key (401). Repeated failures get your IP banned for 30 minutes - double-check it." >&2; exit 1 ;;
   000) echo "✗ could not reach $base_url" >&2; exit 1 ;;
-  *) echo "? unexpected HTTP $code from $base_url — continuing" ;;
+  *) echo "? unexpected HTTP $code from $base_url - continuing" ;;
 esac
 
 omarchy bar set "$PLUGIN_ID" baseUrl "$base_url" >/dev/null
@@ -55,5 +55,5 @@ omarchy bar set "$PLUGIN_ID" hostLabel "$label" >/dev/null
 omarchy plugin enable "$PLUGIN_ID" >/dev/null 2>&1 || true
 
 omarchy-shell "$PLUGIN_ID" refresh >/dev/null 2>&1 || true
-echo "✓ Omaquota configured — key in $KEY_FILE, settings on the bar entry in ~/.config/omarchy/shell.json"
+echo "✓ Omaquota configured - key in $KEY_FILE, settings on the bar entry in ~/.config/omarchy/shell.json"
 echo "  run: omarchy restart shell   (the widget reads its settings on creation)"

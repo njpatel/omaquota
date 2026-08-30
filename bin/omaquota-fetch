@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""omaquota-fetch — collect a CLIProxyAPI snapshot for the Omaquota bar widget.
+"""omaquota-fetch - collect a CLIProxyAPI snapshot for the Omaquota bar widget.
 
 Usage:  omaquota-fetch '<settings-json>' [--force] [--print]
 
@@ -522,7 +522,7 @@ def main():
         with open(key_file) as f:
             key = f.read().strip()
     except OSError:
-        snap["error"] = "no management key at %s — run omaquota-setup" % key_file
+        snap["error"] = "no management key at %s - run omaquota-setup" % key_file
         save_json(SNAPSHOT, snap)
         return 1
     client = Client(base_url, key)
