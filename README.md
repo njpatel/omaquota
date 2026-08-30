@@ -37,7 +37,7 @@ Click the icon.
 | `r` | refresh |
 | `j` `k` | scroll |
 
-The icon turns urgent when a 5h or 7d window drops to 10%. The number beside it is `barMetric`: `requests` (default), `tokens`, `lowest` remaining %, or `none` — `omarchy bar set njpatel.omaquota barMetric none`.
+The icon turns urgent when a 5h or 7d window drops to 10%. The number beside it is the last 24h, chosen with `barMetric`: `tokens` (in+out, default), `tokens-split` (`↑in ↓out`), `requests`, `cost`, `lowest` remaining quota, or `none` — e.g. `omarchy bar set njpatel.omaquota barMetric cost`.
 
 ## License
 

@@ -21,7 +21,7 @@ Panel {
   readonly property string keyFile: String(setting("keyFile", "~/.config/omaquota/management-key"))
   readonly property int refreshIntervalSec: Math.max(60, Number(setting("refreshIntervalSec", 300)))
   readonly property int quotaIntervalSec: Math.max(120, Number(setting("quotaIntervalSec", 900)))
-  readonly property string barMetric: String(setting("barMetric", "requests"))
+  readonly property string barMetric: String(setting("barMetric", "tokens"))
 
   readonly property string snapshotPath: Quickshell.env("HOME") + "/.local/state/omarchy/omaquota/snapshot.json"
   readonly property string fetcher: Qt.resolvedUrl("bin/omaquota-fetch").toString().replace(/^file:\/\//, "")
@@ -431,13 +431,24 @@ Panel {
   }
 
   // ---------------------------------------------------------------- bar
+  // Bar label: always the last 24h, and says so.
+  readonly property var stats24: snapshot && snapshot.stats ? (snapshot.stats["24h"] || null) : null
   readonly property string barText: {
     if (!snapshot || barMetric === "none") return ""
     if (!online) return "off"
-    if (barMetric === "lowest") return lowestRemaining > 100 ? "—" : Math.round(lowestRemaining) + "%"
-    var st = snapshot.stats ? snapshot.stats["24h"] : null
+    if (barMetric === "lowest") return (lowestRemaining > 100 ? "—" : Math.round(lowestRemaining) + "%") + " left"
+    var st = stats24
     if (!st) return ""
-    return barMetric === "tokens" ? fmtNum(st.total_tokens) : fmtNum(st.requests)
+    if (barMetric === "requests") return fmtNum(st.requests) + "/24h"
+    if (barMetric === "cost") return (st.priced ? fmtUsd(st.cost_usd) : "—") + "/24h"
+    if (barMetric === "tokens-split") return "↑" + fmtNum(st.input_tokens) + " ↓" + fmtNum(st.output_tokens) + " /24h"
+    return fmtNum(st.total_tokens) + "/24h"
+  }
+  readonly property string barTooltip: {
+    var st = stats24
+    if (!st) return "Omaquota"
+    return "Last 24h: " + fmtInt(st.requests) + " requests · " + fmtNum(st.total_tokens) + " tokens (↑" + fmtNum(st.input_tokens)
+      + " in, ↓" + fmtNum(st.output_tokens) + " out)" + (st.priced ? " · est " + fmtUsd(st.cost_usd) : "")
   }
 
   implicitWidth: row.implicitWidth
@@ -468,9 +479,12 @@ Panel {
 
       MouseArea {
         anchors.fill: parent
+        hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
         acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
         onClicked: function(mouse) { root.barPressed(mouse.button) }
+        onEntered: if (root.bar) root.bar.showTooltip(metric, root.barTooltip)
+        onExited: if (root.bar) root.bar.hideTooltip(metric)
       }
     }
   }
