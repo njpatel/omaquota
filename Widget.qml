@@ -432,7 +432,7 @@ Panel {
 
   // ---------------------------------------------------------------- bar
   readonly property string barText: {
-    if (!snapshot) return ""
+    if (!snapshot || barMetric === "none") return ""
     if (!online) return "off"
     if (barMetric === "lowest") return lowestRemaining > 100 ? "—" : Math.round(lowestRemaining) + "%"
     var st = snapshot.stats ? snapshot.stats["24h"] : null
@@ -452,14 +452,12 @@ Panel {
       bar: root.bar
       text: "󰒍"
       active: root.alarming
-      onPressed: function(buttonCode) {
-        if (buttonCode === Qt.RightButton) root.refresh(true)
-        else if (buttonCode === Qt.MiddleButton) root.toggleRange()
-        else root.toggle()
-      }
+      onPressed: function(buttonCode) { root.barPressed(buttonCode) }
     }
 
+    // The metric text acts as part of the button: same clicks as the icon.
     Text {
+      id: metric
       anchors.verticalCenter: parent.verticalCenter
       visible: !(root.bar && root.bar.vertical) && root.barText !== ""
       text: root.barText
@@ -467,7 +465,20 @@ Panel {
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
       rightPadding: Style.space(6)
+
+      MouseArea {
+        anchors.fill: parent
+        cursorShape: Qt.PointingHandCursor
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+        onClicked: function(mouse) { root.barPressed(mouse.button) }
+      }
     }
+  }
+
+  function barPressed(buttonCode) {
+    if (buttonCode === Qt.RightButton) root.refresh(true)
+    else if (buttonCode === Qt.MiddleButton) root.toggleRange()
+    else root.toggle()
   }
 
   // ---------------------------------------------------------------- panel

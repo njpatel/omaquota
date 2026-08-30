@@ -32,7 +32,7 @@
       { "key": "keyFile", "type": "path", "label": "File holding the management key", "defaultValue": "~/.config/omaquota/management-key" },
       { "key": "refreshIntervalSec", "type": "integer", "label": "Stats refresh (seconds)", "min": 60, "max": 3600, "step": 30, "defaultValue": 300 },
       { "key": "quotaIntervalSec", "type": "integer", "label": "Per-account quota refresh (seconds)", "min": 300, "max": 7200, "step": 60, "defaultValue": 900, "description": "Quota lookups hit each provider's own API through the proxy; keep this gentle or Anthropic rate-limits the account." },
-      { "key": "barMetric", "type": "enum", "label": "Number shown in the bar", "options": ["requests", "tokens", "lowest"], "defaultValue": "requests" }
+      { "key": "barMetric", "type": "enum", "label": "Number shown in the bar", "options": ["requests", "tokens", "lowest", "none"], "defaultValue": "requests", "description": "requests or tokens in the last 24h, the lowest remaining quota, or none for icon only." }
     ]
   }
 }
