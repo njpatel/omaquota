@@ -25,11 +25,14 @@ Panel {
   readonly property int quotaIntervalSec: Math.max(120, Number(setting("quotaIntervalSec", 900)))
   property string barMetric: String(setting("barMetric", "tokens"))
   readonly property var barMetrics: ["tokens", "tokens-split", "requests", "cost", "none"]
-  function cycleBarMetric() {
+  // persist=false changes it for this session only. Writing the bar entry
+  // reloads the widget, which would throw away anything held in memory - the
+  // demo proxy included - so a scripted walk through the states asks for it.
+  function cycleBarMetric(persist) {
     var i = barMetrics.indexOf(barMetric)
     barMetric = barMetrics[(i + 1) % barMetrics.length]
-    // Persist on the bar entry so the choice survives a shell restart.
-    Quickshell.execDetached(["omarchy", "bar", "set", "njpatel.omaquota", "barMetric", barMetric])
+    if (persist !== false)
+      Quickshell.execDetached(["omarchy", "bar", "set", "njpatel.omaquota", "barMetric", barMetric])
   }
 
   // Bar icon: a name from `barIcons` or any raw glyph. Nerd Font codepoints.
@@ -43,10 +46,11 @@ Panel {
   })
   property string barIconName: String(setting("barIcon", "speedometer"))
   readonly property string barIcon: barIcons[barIconName] !== undefined ? barIcons[barIconName] : barIconName
-  function cycleBarIcon() {
+  function cycleBarIcon(persist) {
     var names = Object.keys(barIcons), i = names.indexOf(barIconName)
     barIconName = names[(i + 1) % names.length]
-    Quickshell.execDetached(["omarchy", "bar", "set", "njpatel.omaquota", "barIcon", barIconName])
+    if (persist !== false)
+      Quickshell.execDetached(["omarchy", "bar", "set", "njpatel.omaquota", "barIcon", barIconName])
   }
 
   readonly property string snapshotPath: Quickshell.env("HOME") + "/.local/state/omarchy/omaquota/snapshot.json"
@@ -214,6 +218,8 @@ Panel {
     function range(): string { root.toggleRange(); return root.range }
     // A staged proxy, for demos and screenshots; call again for the real one.
     function demo(): string { root.demoMode = !root.demoMode; return root.demoMode ? "demo proxy" : "live" }
+    function metric(): string { root.cycleBarMetric(false); return root.barMetric }
+    function icon(): string { root.cycleBarIcon(false); return root.barIconName }
     // Card rectangle in logical monitor coordinates (used for screenshots).
     function geometry(): string {
       return JSON.stringify({ x: panel.cardOrigin.x, y: panel.cardOrigin.y, w: panel.contentWidth, h: panel.contentHeight })
@@ -256,8 +262,8 @@ Panel {
              [demoWin("five_hour", "5h", 74, 2100), demoWin("seven_day", "7d", 66, 233000),
               demoWin("weekly_scoped:fable", "7d fable", 88, 233000)]),
     demoAcct("claude", "margaret@hamilton.dev", 786, 122,
-             [demoWin("five_hour", "5h", 93, 1500), demoWin("seven_day", "7d", 81, 96000),
-              demoWin("weekly_scoped:fable", "7d fable", 97, 96000)]),
+             [demoWin("five_hour", "5h", 82, 1500), demoWin("seven_day", "7d", 81, 96000),
+              demoWin("weekly_scoped:fable", "7d fable", 96, 96000)]),
     demoAcct("claude", "barbara@liskov.net", 0, 0, [],
              { status: "error", quota: { error: "token refresh failed", retry_until: demoT + 240 } }),
     demoAcct("codex", "edsger@dijkstra.nl", 1508, 6,
@@ -266,13 +272,8 @@ Panel {
     demoAcct("codex", "barbara@mcclintock.bio", 622, 2,
              [demoWin("main:primary_window", "5h", 41, 11200),
               demoWin("main:secondary_window", "7d", 37, 149000)]),
-    demoAcct("codex", "donald@knuth.edu", 344, 18,
-             [demoWin("main:primary_window", "5h", 66, 3300),
-              demoWin("main:secondary_window", "7d", 59, 271000)]),
     demoAcct("gemini", "shakuntala@devi.in", 210, 1,
-             [demoWin("five_hour", "5h", 8, 8800), demoWin("seven_day", "7d", 16, 380000)]),
-    demoAcct("gemini", "mary@jackson.aero", 97, 0,
-             [demoWin("five_hour", "5h", 23, 5200), demoWin("seven_day", "7d", 24, 210000)]),
+             [demoWin("five_hour", "5h", 8, 8800), demoWin("seven_day", "7d", 16, 380000)])
   ]
 
   function demoStats(rng) {
