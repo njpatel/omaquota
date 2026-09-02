@@ -249,30 +249,30 @@ Panel {
   }
 
   readonly property var demoAccounts: [
-    demoAcct("claude", "ada@lovelace.dev", 412, 3,
+    demoAcct("claude", "dario@acme.com", 412, 3,
              [demoWin("five_hour", "5h", 12, 9700), demoWin("seven_day", "7d", 21, 291000),
               demoWin("weekly_scoped:fable", "7d fable", 34, 291000)]),
-    demoAcct("claude", "grace@hopper.io", 268, 9,
+    demoAcct("claude", "mira@acme.com", 268, 9,
              [demoWin("five_hour", "5h", 27, 4300), demoWin("seven_day", "7d", 33, 402000),
               demoWin("weekly_scoped:fable", "7d fable", 61, 402000)]),
-    demoAcct("claude", "alan@turing.org", 903, 14,
+    demoAcct("claude", "demis@acme.com", 903, 14,
              [demoWin("five_hour", "5h", 58, 12800), demoWin("seven_day", "7d", 44, 118000),
               demoWin("weekly_scoped:fable", "7d fable", 72, 118000)]),
-    demoAcct("claude", "katherine@johnson.space", 1140, 31,
+    demoAcct("claude", "ilya@acme.com", 1140, 31,
              [demoWin("five_hour", "5h", 74, 2100), demoWin("seven_day", "7d", 66, 233000),
               demoWin("weekly_scoped:fable", "7d fable", 88, 233000)]),
-    demoAcct("claude", "margaret@hamilton.dev", 786, 122,
+    demoAcct("claude", "sam@acme.com", 786, 122,
              [demoWin("five_hour", "5h", 82, 1500), demoWin("seven_day", "7d", 81, 96000),
               demoWin("weekly_scoped:fable", "7d fable", 96, 96000)]),
-    demoAcct("claude", "barbara@liskov.net", 0, 0, [],
+    demoAcct("claude", "clem@acme.com", 0, 0, [],
              { status: "error", quota: { error: "token refresh failed", retry_until: demoT + 240 } }),
-    demoAcct("codex", "edsger@dijkstra.nl", 1508, 6,
+    demoAcct("codex", "arthur@acme.com", 1508, 6,
              [demoWin("main:primary_window", "5h", 19, 6400),
               demoWin("main:secondary_window", "7d", 28, 356000)]),
-    demoAcct("codex", "barbara@mcclintock.bio", 622, 2,
+    demoAcct("codex", "aidan@acme.com", 622, 2,
              [demoWin("main:primary_window", "5h", 41, 11200),
               demoWin("main:secondary_window", "7d", 37, 149000)]),
-    demoAcct("gemini", "shakuntala@devi.in", 210, 1,
+    demoAcct("gemini", "jensen@acme.com", 210, 1,
              [demoWin("five_hour", "5h", 8, 8800), demoWin("seven_day", "7d", 16, 380000)])
   ]
 
@@ -630,6 +630,11 @@ Panel {
 
   implicitWidth: row.implicitWidth
   implicitHeight: bar ? bar.barSize : Style.bar.sizeHorizontal
+
+  // Without this the bar underlines the icon slot alone, and the metric beside
+  // it - often the wider half of the widget - sits outside the mark.
+  readonly property real openPanelIndicatorWidth: metric.visible
+    ? row.width - metric.rightPadding : 0
 
   Row {
     id: row
