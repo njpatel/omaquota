@@ -11,7 +11,7 @@ JSON snapshot to ~/.local/state/omarchy/omaquota/snapshot.json, atomically.
 
 The usage queue is pop-on-read, so this script is its consumer: records are
 folded into hourly buckets in usage.json (kept for 7 days) and priced with
-the models.dev catalogue (cached for a day in models-dev.json). Run only one
+the models.dev catalogue (cached in models-dev.json). Run only one
 consumer per proxy.
 
 Quota lookups are rate-limited upstream (Anthropic answers 429 with a
@@ -115,6 +115,11 @@ USAGE_FILE = os.path.join(STATE_DIR, "usage.json")
 PRICES_FILE = os.path.join(STATE_DIR, "models-dev.json")
 MODELS_DEV_URL = "https://models.dev/api.json"
 RETAIN_S = 7 * 86400
+# How long a models.dev catalogue is trusted, and how soon an unfamiliar model
+# may force a fresh one. New models appear between releases, so the floor is
+# what actually prices them; the ceiling is only there to catch price changes.
+PRICES_TTL_S = 6 * 3600
+PRICES_RETRY_S = 900
 RANGES = {"24h": 86400, "7d": 7 * 86400}
 # CLIProxyAPI provider ids -> models.dev provider ids tried first.
 PROVIDER_MAP = {
@@ -244,10 +249,19 @@ def backfill_from_tracker(client, usage):
     return added
 
 
-def load_prices():
-    """models.dev cost table keyed "provider|model", refreshed daily."""
+def prices_age():
     cache = load_json(PRICES_FILE, {})
-    if not cache or time.time() - (cache.get("fetched_at") or 0) > 86400:
+    return time.time() - (cache.get("fetched_at") or 0)
+
+
+def load_prices(force=False):
+    """models.dev cost table keyed "provider|model".
+
+    Refreshed every PRICES_TTL_S, and on demand when usage names a model the
+    table has never heard of - a model released this morning would otherwise
+    read as free until the cache happened to expire."""
+    cache = load_json(PRICES_FILE, {})
+    if force or not cache or time.time() - (cache.get("fetched_at") or 0) > PRICES_TTL_S:
         try:
             req = urllib.request.Request(MODELS_DEV_URL, headers={"User-Agent": "omaquota"})
             with urllib.request.urlopen(req, timeout=20) as r:
@@ -280,6 +294,18 @@ def price_for(table, provider, model):
         if key.endswith("|" + model):
             return p
     return None
+
+
+def has_unpriced(usage, table, span):
+    """Any model used within `span` that the table cannot price."""
+    since = time.time() - span
+    for key, b in usage.get("buckets", {}).items():
+        hour, provider, model, _source = key.split("|", 3)
+        if int(hour) + 3600 <= since or not b.get("requests"):
+            continue
+        if not price_for(table, provider, model):
+            return True
+    return False
 
 
 def cost_of(b, p):
@@ -340,8 +366,11 @@ def stats_for(usage, table, rng):
         "models": [dict(r, cost=round(r["cost"], 2)) for r in rows],
         # Coverage starts when this consumer first drained the queue.
         "covered_since": first if now - first < span else None,
+        # Only while the estimated hours are still inside this range: 24h
+        # stops mentioning them the moment it has moved past them, even though
+        # 7d still has them in view.
         "note": ("figures before %s are estimates" % time.strftime("%d %b %H:%M", time.localtime(usage["backfill_until"])))
-                if usage.get("backfill_until") else None,
+                if (usage.get("backfill_until") or 0) > since else None,
     }
 
 
@@ -553,6 +582,10 @@ def main():
     except Exception as e:
         usage_error = "usage queue: %s" % e
     table = load_prices()
+    # A model that shipped since the last catalogue would price at zero, which
+    # reads as free rather than as unknown. Ask models.dev again for it.
+    if has_unpriced(usage, table, max(RANGES.values())) and prices_age() > PRICES_RETRY_S:
+        table = load_prices(force=True)
     stats = {rng: stats_for(usage, table, rng) for rng in RANGES}
     if usage_error:
         for st in stats.values():

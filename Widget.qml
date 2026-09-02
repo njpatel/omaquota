@@ -114,6 +114,22 @@ Panel {
     return low
   }
 
+  // What an account has left: the tightest of its primary windows, since that
+  // is what runs out first. Model-scoped caps are ignored here for the same
+  // reason they do not light the bar. Accounts reporting nothing sort last.
+  function headroom(acct) {
+    var wins = (acct.quota || {}).windows || []
+    var low = 101, any = false
+    for (var i = 0; i < wins.length; i++) {
+      var w = wins[i]
+      if (primaryWindows.indexOf(w.id) < 0) continue
+      if (w.remaining_pct === null || w.remaining_pct === undefined) continue
+      any = true
+      if (w.remaining_pct < low) low = w.remaining_pct
+    }
+    return any ? low : -1
+  }
+
   function toggleRange() { range = range === "24h" ? "7d" : "24h" }
   function scrollBy(steps) {
     panelFlick.contentY = Math.max(0, Math.min(panelFlick.contentY + steps * Style.space(48),
@@ -406,6 +422,13 @@ Panel {
       var prov = accounts[a].provider
       if (!byProvider[prov]) { byProvider[prov] = []; groups.push(prov) }
       byProvider[prov].push(accounts[a])
+    }
+    // Most headroom first, so the account to reach for is at the top of its
+    // group and the one about to run dry is at the bottom.
+    for (var gi = 0; gi < groups.length; gi++) {
+      byProvider[groups[gi]] = byProvider[groups[gi]].slice().sort(function(x, y) {
+        return headroom(y) - headroom(x)
+      })
     }
     if (!expanded && groups.length > 0) out += accountHeader("")
     for (var g = 0; g < groups.length; g++) {
