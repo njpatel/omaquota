@@ -18,7 +18,8 @@ Panel {
 
   // ---------------------------------------------------------------- settings
   readonly property string baseUrl: String(setting("baseUrl", "http://127.0.0.1:8317"))
-  readonly property string hostLabel: String(setting("hostLabel", "cliproxyapi"))
+  // The demo proxy names itself, so a recording never shows a real host.
+  readonly property string hostLabel: demoMode ? "cliproxyapi" : String(setting("hostLabel", "cliproxyapi"))
   readonly property string keyFile: String(setting("keyFile", "~/.config/omaquota/management-key"))
   readonly property int refreshIntervalSec: Math.max(30, Number(setting("refreshIntervalSec", 60)))
   readonly property int quotaIntervalSec: Math.max(120, Number(setting("quotaIntervalSec", 900)))
@@ -84,7 +85,12 @@ Panel {
   }
 
   // ---------------------------------------------------------------- state
-  property var snapshot: null
+  property var liveSnapshot: null
+  // A staged proxy for screenshots and demos: same shape the fetcher writes,
+  // with invented accounts. While it is on nothing is fetched, so a demo can
+  // never drain the real proxy's usage queue or show anyone's real email.
+  property bool demoMode: false
+  readonly property var snapshot: demoMode ? demoSnapshot : liveSnapshot
   property string range: "24h"
   property bool scrub: false      // h: redact account names
   property bool expanded: true    // e: every account vs one block per provider
@@ -143,13 +149,13 @@ Panel {
     printErrors: false
     onFileChanged: reload()
     onLoaded: root.parseSnapshot(text())
-    onLoadFailed: root.snapshot = null
+    onLoadFailed: root.liveSnapshot = null
   }
 
   function parseSnapshot(content) {
     try {
       var parsed = JSON.parse(String(content || ""))
-      root.snapshot = parsed && typeof parsed === "object" ? parsed : null
+      root.liveSnapshot = parsed && typeof parsed === "object" ? parsed : null
     } catch (e) {
       console.warn("omaquota", "bad snapshot", e)
     }
@@ -170,7 +176,7 @@ Panel {
   }
 
   function refresh(force) {
-    if (fetchProcess.running) return
+    if (fetchProcess.running || root.demoMode) return
     fetchProcess.force = !!force
     fetchProcess.running = true
   }
@@ -206,11 +212,98 @@ Panel {
     function scrub(): string { root.scrub = !root.scrub; return root.scrub ? "scrubbed" : "clear" }
     function expand(): string { root.expanded = !root.expanded; return root.expanded ? "expanded" : "aggregated" }
     function range(): string { root.toggleRange(); return root.range }
+    // A staged proxy, for demos and screenshots; call again for the real one.
+    function demo(): string { root.demoMode = !root.demoMode; return root.demoMode ? "demo proxy" : "live" }
     // Card rectangle in logical monitor coordinates (used for screenshots).
     function geometry(): string {
       return JSON.stringify({ x: panel.cardOrigin.x, y: panel.cardOrigin.y, w: panel.contentWidth, h: panel.contentHeight })
     }
   }
+
+  // ---------------------------------------------------------------- demo
+  // A plausible fleet: three providers, a spread of headroom, one account in
+  // trouble and one not reporting. Percentages drift with the clock so a
+  // recording does not look frozen, but nothing here talks to a proxy.
+  readonly property double demoT: Math.floor(nowMs / 1000)
+  function demoWin(id, label, used, resetsIn) {
+    return { id: id, label: label, used_pct: used, remaining_pct: 100 - used,
+             resets_at: demoT + resetsIn }
+  }
+  function demoAcct(provider, email, ok, fail, wins, extra) {
+    var a = { id: provider + "-" + email + ".json", auth_index: email, provider: provider,
+              email: email, status: "active", disabled: false, unavailable: false,
+              success: ok, failed: fail,
+              quota: { windows: wins, plan: null, fetched_at: demoT - 40,
+                       stale: false, error: null, retry_until: 0 } }
+    for (var k in (extra || {})) {
+      if (k === "quota") { for (var q in extra[k]) a.quota[q] = extra[k][q] }
+      else a[k] = extra[k]
+    }
+    return a
+  }
+
+  readonly property var demoAccounts: [
+    demoAcct("claude", "ada@lovelace.dev", 412, 3,
+             [demoWin("five_hour", "5h", 12, 9700), demoWin("seven_day", "7d", 21, 291000),
+              demoWin("weekly_scoped:fable", "7d fable", 34, 291000)]),
+    demoAcct("claude", "grace@hopper.io", 268, 9,
+             [demoWin("five_hour", "5h", 27, 4300), demoWin("seven_day", "7d", 33, 402000),
+              demoWin("weekly_scoped:fable", "7d fable", 61, 402000)]),
+    demoAcct("claude", "alan@turing.org", 903, 14,
+             [demoWin("five_hour", "5h", 58, 12800), demoWin("seven_day", "7d", 44, 118000),
+              demoWin("weekly_scoped:fable", "7d fable", 72, 118000)]),
+    demoAcct("claude", "katherine@johnson.space", 1140, 31,
+             [demoWin("five_hour", "5h", 74, 2100), demoWin("seven_day", "7d", 66, 233000),
+              demoWin("weekly_scoped:fable", "7d fable", 88, 233000)]),
+    demoAcct("claude", "margaret@hamilton.dev", 786, 122,
+             [demoWin("five_hour", "5h", 93, 1500), demoWin("seven_day", "7d", 81, 96000),
+              demoWin("weekly_scoped:fable", "7d fable", 97, 96000)]),
+    demoAcct("claude", "barbara@liskov.net", 0, 0, [],
+             { status: "error", quota: { error: "token refresh failed", retry_until: demoT + 240 } }),
+    demoAcct("codex", "edsger@dijkstra.nl", 1508, 6,
+             [demoWin("main:primary_window", "5h", 19, 6400),
+              demoWin("main:secondary_window", "7d", 28, 356000)]),
+    demoAcct("codex", "barbara@mcclintock.bio", 622, 2,
+             [demoWin("main:primary_window", "5h", 41, 11200),
+              demoWin("main:secondary_window", "7d", 37, 149000)]),
+    demoAcct("codex", "donald@knuth.edu", 344, 18,
+             [demoWin("main:primary_window", "5h", 66, 3300),
+              demoWin("main:secondary_window", "7d", 59, 271000)]),
+    demoAcct("gemini", "shakuntala@devi.in", 210, 1,
+             [demoWin("five_hour", "5h", 8, 8800), demoWin("seven_day", "7d", 16, 380000)]),
+    demoAcct("gemini", "mary@jackson.aero", 97, 0,
+             [demoWin("five_hour", "5h", 23, 5200), demoWin("seven_day", "7d", 24, 210000)]),
+  ]
+
+  function demoStats(rng) {
+    var k = rng === "7d" ? 6.4 : 1
+    var models = [
+      { model: "gpt-5.6-sol",       provider: "codex",  requests: Math.round(1824 * k), total_tokens: Math.round(297e6 * k), cost: 167.4 * k, priced: true },
+      { model: "claude-fable-5-1",  provider: "claude", requests: Math.round(850 * k),  total_tokens: Math.round(237e6 * k), cost: 892.1 * k, priced: true },
+      { model: "claude-opus-5",     provider: "claude", requests: Math.round(381 * k),  total_tokens: Math.round(106e6 * k), cost: 85.8 * k,  priced: true },
+      { model: "claude-fable-5",    provider: "claude", requests: Math.round(223 * k),  total_tokens: Math.round(57e6 * k),  cost: 242.0 * k, priced: true },
+      { model: "gemini-3.5-pro",    provider: "gemini", requests: Math.round(307 * k),  total_tokens: Math.round(41e6 * k),  cost: 12.4 * k,  priced: true },
+      { model: "gpt-5.6-luna",      provider: "codex",  requests: Math.round(220 * k),  total_tokens: Math.round(11e6 * k),  cost: 0.5 * k,   priced: true }
+    ]
+    var inTok = 11.4e6 * k, cached = 611e6 * k, cacheWr = 85e6 * k, outTok = 1.8e6 * k
+    return {
+      range: rng, requests: Math.round(3805 * k), failed: Math.round(27 * k),
+      input_tokens: inTok + cached, uncached_tokens: inTok, cached_tokens: cached,
+      cache_write_tokens: cacheWr, output_tokens: outTok,
+      total_tokens: inTok + cached + cacheWr + outTok,
+      cache_hit: 0.98, avg_latency_ms: 13400, avg_ttft_ms: 2500,
+      cost_usd: 1400.2 * k, cost_in_usd: 96.1 * k, cost_out_usd: 12.4 * k, cost_cache_usd: 1291.7 * k,
+      unpriced_requests: 0, priced: true, models: models,
+      covered_since: null,
+      note: rng === "7d" ? "figures before 29 Aug 21:03 are estimates" : null
+    }
+  }
+
+  readonly property var demoSnapshot: ({
+    generated_at: "", generated_ts: demoT - 12, host: "cliproxyapi", ok: true, error: null,
+    stats: { "24h": demoStats("24h"), "7d": demoStats("7d") },
+    accounts: demoAccounts
+  })
 
   // ---------------------------------------------------------------- formatting
   function fmtNum(n) {
