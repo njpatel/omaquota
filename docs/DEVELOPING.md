@@ -1,5 +1,12 @@
 # Working on omaquota
 
+> Not called `AGENTS.md`, and not at the repository root, on purpose. Omarchy
+> installs a plugin's whole tree into `~/.config/omarchy/plugins/`, so a root
+> agent-instruction file would become ambient context for any coding agent the
+> *installing user* happens to run — instructions they never chose to load.
+> Marketplace review raised this on omapager; the same reasoning applies here.
+> If you keep a `CLAUDE.md` symlink to this file locally, leave it untracked.
+
 CLIProxyAPI usage and per-subscription quota in the Omarchy bar: a bar icon
 with a number, and a TUI-style panel behind it.
 
