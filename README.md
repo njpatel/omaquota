@@ -52,6 +52,10 @@ The icon turns urgent when a 5h or 7d window drops to 10%. The number beside it 
 - **Cost** prices those four parts separately at [models.dev](https://models.dev) list rates for the model. The catalogue is refreshed every six hours, and again as soon as a model turns up that it has never heard of - a model released this morning would otherwise price at zero, which reads as free rather than as unknown. It is an estimate: context-tier and service-tier surcharges are ignored.
 - **Quota** is what each provider reports for the account (Anthropic `oauth/usage`, ChatGPT `wham/usage`, grok billing), fetched through the proxy's `api-call` passthrough, no more often than `quotaIntervalSec`.
 
+## Contributing
+
+See [how we review contributions](docs/DEVELOPING.md#how-we-review-contributions) and the [development guide](docs/DEVELOPING.md).
+
 ## License
 
 Apache-2.0
